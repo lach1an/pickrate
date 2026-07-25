@@ -249,8 +249,12 @@ export interface ScenarioScore {
   passed: boolean;
   /** Between 20% and 80% — looks fine in a demo, fails one call in three. */
   flaky: boolean;
-  /** What it picked instead, descending by count. */
-  confusions: Array<{ tool: string | null; count: number }>;
+  /**
+   * What it picked instead, descending by count. `null` means it picked
+   * nothing. Named `selected` rather than `tool` because on a skills surface
+   * the thing selected is a skill.
+   */
+  confusions: Array<{ selected: string | null; count: number }>;
   errors: number;
 }
 

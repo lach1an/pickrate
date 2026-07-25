@@ -102,7 +102,7 @@ describe('runEval', () => {
 
     const selection = report.scenarios.find((s) => s.id === 'create-branch')!;
     assert.equal(selection.score, 0);
-    assert.deepEqual(selection.confusions, [{ tool: 'via:create_branch', count: 5 }]);
+    assert.deepEqual(selection.confusions, [{ selected: 'via:create_branch', count: 5 }]);
     assert.deepEqual(report.orphans, ['create_branch', 'delete_branch', 'list_branches']);
   });
 

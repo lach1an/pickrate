@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { loadConfig } from '../src/config/index.js';
 import { loadManifestFromFile } from '../src/adapters/mcp/index.js';
+import { loadSkills } from '../src/adapters/skills/index.js';
 import { ReplayProvider } from '../src/provider/replay.js';
 import { formatEvalReport } from '../src/report/eval.js';
 import { formatEvalReportJson, SCHEMA_VERSION } from '../src/report/json.js';
@@ -51,6 +52,38 @@ describe('eval report', () => {
   it('surfaces the argument/selection split when they disagree', async () => {
     const text = stripAnsi(formatEvalReport(await replayReport()));
     assert.match(text, /picked the right tool, wrong arguments 3\/4/);
+  });
+
+  it('names what was selected, not "the tool that was selected"', async () => {
+    // The field is `selected`, not `tool`: on a skills run the thing chosen is
+    // a skill, and a JSON consumer should not have to know which adapter ran.
+    const parsed = JSON.parse(formatEvalReportJson(await replayReport()));
+    const withConfusion = parsed.scenarios.find((s: { confusions: unknown[] }) => s.confusions.length > 0);
+    assert.equal(typeof withConfusion.confusions[0].selected, 'string');
+  });
+});
+
+describe('eval report on a skills run', () => {
+  async function skillsReport(): Promise<EvalReport> {
+    const config = await loadConfig(fixture('skills-eval.yaml'));
+    const surface = await loadSkills(config.target);
+    const provider = await ReplayProvider.fromFile(fixture('trials/skills.json'));
+    return runEval(config, surface, provider);
+  }
+
+  it('uses the right noun throughout', async () => {
+    // A report that says "tool" on a skills run reads like it measured the
+    // wrong thing — and the reader has no way to tell that it did not.
+    const report = await skillsReport();
+    const text = stripAnsi(formatEvalReport(report));
+    assert.ok(!/\btool\b/.test(text.replace(/skill-tool|pseudo-tool/g, '')), text);
+  });
+
+  it('names the presentation above the numbers', async () => {
+    const text = stripAnsi(formatEvalReport(await skillsReport()));
+    const surfaced = text.indexOf('skill-tool');
+    assert.ok(surfaced > 0 && surfaced < text.indexOf('review'), 'mode qualifies the scores');
+    assert.equal(JSON.parse(formatEvalReportJson(await skillsReport())).presentation, 'skill-tool');
   });
 });
 

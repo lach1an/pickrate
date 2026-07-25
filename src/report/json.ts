@@ -5,9 +5,10 @@ import type { Analysis, EvalReport } from '../types.js';
  * Bump when a shape below changes incompatibly. CI consumers pin on this.
  *
  * 2 as of the adapter split: `toolCount` became `itemCount`, `orphanTools`
- * became `orphans`, findings anchor to `item` rather than `tool`, and `source`
- * gained `adapter`. All of that is a break, and breaking it before M4's
- * GitHub Action exists is far cheaper than after.
+ * became `orphans`, findings anchor to `item` rather than `tool`, confusion
+ * entries name what was `selected` rather than a `tool`, `source` gained
+ * `adapter`, and a run reports its `presentation`. All of that is a break, and
+ * breaking it before M4's GitHub Action exists is far cheaper than after.
  */
 export const SCHEMA_VERSION = 2;
 

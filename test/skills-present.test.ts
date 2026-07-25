@@ -158,7 +158,7 @@ describe('skills eval, end to end and offline', () => {
     assert.equal(report.presentation, 'skill-tool', 'the mode is part of the result');
     assert.equal(scores.get('review')!.score, 1);
     assert.equal(scores.get('review-near-miss')!.score, 0.6);
-    assert.deepEqual(scores.get('review-near-miss')!.confusions, [{ tool: 'git-review', count: 2 }]);
+    assert.deepEqual(scores.get('review-near-miss')!.confusions, [{ selected: 'git-review', count: 2 }]);
   });
 
   it('counts an over-call as a miss, naming both skills', () => {
@@ -170,7 +170,7 @@ describe('skills eval, end to end and offline', () => {
       const report = await runEval(config, surface, provider);
       const score = report.scenarios.find((s) => s.id === 'release-notes')!;
 
-      assert.deepEqual(score.confusions, [{ tool: 'changelog + git-review', count: 1 }]);
+      assert.deepEqual(score.confusions, [{ selected: 'changelog + git-review', count: 1 }]);
       assert.equal(score.errors, 1, 'the errored trial leaves the denominator');
       assert.equal(score.selection.total, 4);
     });
@@ -201,6 +201,6 @@ describe('skills eval, end to end and offline', () => {
 
     assert.equal(score.restraint, true);
     assert.equal(score.score, 0.8, 'four clean declines, one bare Skill call');
-    assert.deepEqual(score.confusions, [{ tool: 'Skill', count: 1 }]);
+    assert.deepEqual(score.confusions, [{ selected: 'Skill', count: 1 }]);
   });
 });

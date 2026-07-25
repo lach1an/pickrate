@@ -6,7 +6,7 @@ Full spec: [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md), plus [`plans/skil
 
 **M1 (analyser) and M2 (runner + scorer) — complete.** `pickrate inspect <target>` reports token cost and lint findings; `pickrate run <config.yaml>` runs scenarios × trials against a model and reports pass rates, confusion pairs, orphans and flakiness.
 
-**Adapter split — steps 1–5 of 6 done.** The core is generic over a `Surface` (`SurfaceItem = ToolDef | SkillDef`) and runs through an `Adapter` (`load` + `present`), with providers taking a `Presentation` and the scorer projecting raw calls onto selections. Both adapters load, present and score: `inspect` and `run` both work on MCP servers and skills directories, offline fixtures included for each. Step 6 is what remains — reporter kind-awareness beyond the `surfaced` line, and a docs pass. M3 (mutator) and M4 (CI) are not started — and the mutator must land *after* the adapter work, or its operators get written twice.
+**Adapter split — complete (6 of 6).** The core is generic over a `Surface` (`SurfaceItem = ToolDef | SkillDef`) and runs through an `Adapter` (`load` + `present`), with providers taking a `Presentation` and the scorer projecting raw calls onto selections. `inspect` and `run` both work on MCP servers and skills directories, with offline fixtures for each. M3 (mutator) is next and is now unblocked; M4 (CI) after it — and the mutator must land *after* the adapter work, or its operators get written twice.
 
 ## Invariants
 
@@ -67,4 +67,5 @@ They are also the seed corpus for M3's mutation testing — a mutation run score
 - Every rule declares `appliesTo: SurfaceKind[]`. A rule that cannot say anything about a surface is skipped, not run against an empty narrowing — silence and "no findings" must not be the same thing. Narrow with `toolsOf`/`skillsOf` from `src/surface.ts`, never a cast.
 - Token counts are *resident* cost. For skills that means routing descriptions only; bodies go in `TokenReport.deferred`, are reported on their own line below the headline, and are never summed into the total. `deferred` is set for every skills surface even at zero — "your bodies cost nothing" and "we did not measure them" are different statements.
 - A malformed skill loads with `SkillDef.error` set rather than throwing. One bad file in a set of thirty must not take down the run, and an unreachable skill is itself the finding. Rules that would pile on (`missing-skill-description`) skip items with an error, so the actual cause stays legible.
-- The JSON report shape is versioned (`SCHEMA_VERSION`, now 2); M4's CI integration will pin on it.
+- The JSON report shape is versioned (`SCHEMA_VERSION`, now 2); M4's CI integration will pin on it. Version 2 has not shipped, so it absorbed the whole adapter split: `itemCount`, `orphans`, `finding.item`, `confusions[].selected`, `source.adapter`, `presentation`. Once M4 exists, a change like any of those costs a bump.
+- Report copy takes its noun from `source.adapter` via `itemNoun`. A skills run that says "tool" reads like it measured the wrong thing, and the reader cannot tell that it didn't — a test asserts the word never appears on a skills report.

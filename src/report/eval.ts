@@ -1,5 +1,6 @@
 import pc from 'picocolors';
 import { formatUsd } from '../provider/pricing.js';
+import { itemNoun } from '../surface.js';
 import type { EvalReport, ScenarioScore } from '../types.js';
 
 const BAR_WIDTH = 16;
@@ -14,6 +15,9 @@ const BAR_WIDTH = 16;
  */
 export function formatEvalReport(report: EvalReport): string {
   const out: string[] = [''];
+  // "picked the right tool" is wrong on a skills run, and a report that uses
+  // the wrong noun reads like it measured the wrong thing.
+  const noun = itemNoun({ kind: report.source.adapter });
 
   out.push(`${pc.bold('pickrate run')}  ${pc.dim(report.source.target)}`);
   // The model under test is part of the result — never bury it.
@@ -35,7 +39,7 @@ export function formatEvalReport(report: EvalReport): string {
   out.push(pc.dim(`  cost      ${formatCost(report)}`));
   out.push('');
 
-  out.push(formatScenarioTable(report.scenarios));
+  out.push(formatScenarioTable(report.scenarios, noun));
   out.push('');
 
   const confusion = formatConfusion(report.scenarios);
@@ -44,7 +48,7 @@ export function formatEvalReport(report: EvalReport): string {
     out.push('');
   }
 
-  const orphans = formatOrphans(report.orphans);
+  const orphans = formatOrphans(report.orphans, noun);
   if (orphans) {
     out.push(orphans);
     out.push('');
@@ -56,7 +60,7 @@ export function formatEvalReport(report: EvalReport): string {
   return out.join('\n');
 }
 
-function formatScenarioTable(scenarios: ScenarioScore[]): string {
+function formatScenarioTable(scenarios: ScenarioScore[], noun: string): string {
   const idWidth = Math.max(...scenarios.map((s) => s.id.length), 8);
   const lines: string[] = [];
 
@@ -82,7 +86,7 @@ function formatScenarioTable(scenarios: ScenarioScore[]): string {
     if (scenario.args && scenario.args.rate < 1) {
       lines.push(
         pc.dim(
-          `    ${' '.repeat(idWidth)}  picked the right tool, wrong arguments ` +
+          `    ${' '.repeat(idWidth)}  picked the right ${noun}, wrong arguments ` +
             `${scenario.args.passed}/${scenario.args.total}`,
         ),
       );
@@ -98,9 +102,9 @@ function formatConfusion(scenarios: ScenarioScore[]): string | undefined {
   for (const scenario of scenarios) {
     if (scenario.confusions.length === 0) continue;
     const expected = scenario.expected ?? 'nothing';
-    for (const { tool, count } of scenario.confusions) {
+    for (const { selected, count } of scenario.confusions) {
       lines.push(
-        `    ${scenario.id}  ${pc.dim('wanted')} ${expected} ${pc.dim('→ got')} ${tool ?? pc.dim('nothing')} ${pc.dim(`×${count}`)}`,
+        `    ${scenario.id}  ${pc.dim('wanted')} ${expected} ${pc.dim('→ got')} ${selected ?? pc.dim('nothing')} ${pc.dim(`×${count}`)}`,
       );
     }
   }
@@ -109,12 +113,12 @@ function formatConfusion(scenarios: ScenarioScore[]): string | undefined {
   return [pc.dim('  confusion'), ...lines].join('\n');
 }
 
-function formatOrphans(orphans: string[]): string | undefined {
+function formatOrphans(orphans: string[], noun: string): string | undefined {
   if (orphans.length === 0) return undefined;
   return [
     pc.dim('  orphans'),
     ...orphans.map((name) => `    ${pc.yellow('·')} ${name}`),
-    pc.dim('    Never selected by any scenario — context you pay for on every call.'),
+    pc.dim(`    ${noun === 'skill' ? 'Skills' : 'Tools'} no scenario ever selected — context you pay for on every call.`),
     pc.dim('    Only as good as your scenario coverage.'),
   ].join('\n');
 }

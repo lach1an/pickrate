@@ -1,6 +1,6 @@
 # pickrate
 
-**Does an agent actually use your MCP server correctly?**
+**Does an agent actually use your MCP server — or your skills — correctly?**
 
 A tool manifest is a prompt. Names, descriptions and schemas are the entire interface a model reasons over — no type checking, no compiler, no linter. So MCP servers fail in ways ordinary APIs don't: the model picks the wrong tool, invents an argument format, or never calls your tool at all while your integration tests all pass.
 
@@ -8,7 +8,7 @@ A tool manifest is a prompt. Names, descriptions and schemas are the entire inte
 
 The same question applies to Agent Skills, for the same reason: a skill is selected from a one-line description too. Both surfaces go through the same measurement.
 
-> Status: **M2 complete**, adapter split 5 of 6 steps in. `inspect` (static analysis) and `run` (selection eval) both work, on MCP servers and on skills directories. The mutator is not built yet — see [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md) and [`plans/skills-adapter-plan.md`](plans/skills-adapter-plan.md).
+> Status: **M2 complete**, adapter split complete. `inspect` (static analysis) and `run` (selection eval) both work, on MCP servers and on skills directories. The mutator is not built yet — see [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md) and [`plans/skills-adapter-plan.md`](plans/skills-adapter-plan.md).
 
 ## Quick start
 
@@ -41,6 +41,23 @@ pickrate inspect  npx -y @modelcontextprotocol/server-filesystem /tmp
   17 warnings · 2 info
 ```
 
+Point it at a skills directory and it measures the same things, with the token figure split by when you pay it:
+
+```
+pickrate inspect  ./.claude/skills
+  skills    8
+  context   ~314 tokens per session (o200k_base, approximate)
+  bodies    ~242 tokens, paid only when a skill triggers
+
+  skill-description-length
+    ✗ "verbose" has a 1185-character description, over the 1024 limit by 161.
+
+  near-duplicate-description
+    ! "find-files" and "search-files" describe themselves 89% alike.
+
+  4 errors · 3 warnings · 2 info
+```
+
 ## Targets
 
 | Target | Read as |
@@ -66,7 +83,7 @@ Directories are ambiguous — an MCP server project is a directory too — so a 
 
 ## `pickrate run` — does a model actually use it correctly?
 
-`inspect` tells you the manifest is well-formed. `run` puts a model in the loop and measures whether it picks the right tool.
+`inspect` tells you the surface is well-formed. `run` puts a model in the loop and measures whether it picks the right thing out of it.
 
 ```bash
 npx pickrate run examples/filesystem.yaml --dry-run   # price it, spend nothing
@@ -168,9 +185,9 @@ Scenario semantics are otherwise identical — around 20 prompts, half that shou
 
 ### What `run` does and doesn't do
 
-- **It never executes a tool.** One model turn per trial, `tools/call` is never issued — a `delete_branch` scenario must not delete anything on your server.
-- **It never retries a result.** Transport errors are retried; a trial that picked the wrong tool is *data*, and retrying it would bias every pass rate upward.
-- **It runs the first trial alone**, so the manifest lands in the prompt cache before the rest fan out. Without that, a large manifest is re-billed at full price on every trial.
+- **It never executes anything.** One model turn per trial, `tools/call` is never issued and no skill body is ever loaded — a `delete_branch` scenario must not delete anything on your server.
+- **It never retries a result.** Transport errors are retried; a trial that picked the wrong thing is *data*, and retrying it would bias every pass rate upward.
+- **It runs the first trial alone**, so the surface lands in the prompt cache before the rest fan out. Without that, a large surface is re-billed at full price on every trial.
 - **The model under test is part of the result**, so the report names it prominently.
 
 ## Rules

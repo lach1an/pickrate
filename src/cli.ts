@@ -22,7 +22,7 @@ ${pc.bold('pickrate')} — does an agent actually pick your tools and skills cor
 
 ${pc.bold('Usage')}
   pickrate inspect <target> [options]     static analysis — no API key, no cost
-  pickrate run <config.yaml> [options]    tool-selection eval — needs a model
+  pickrate run <config.yaml> [options]    selection eval — needs a model
 
 ${pc.bold('Targets')}
   "node ./build/index.js"        stdio MCP server (quote the whole command)

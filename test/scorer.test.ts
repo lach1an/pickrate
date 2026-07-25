@@ -76,7 +76,7 @@ describe('scorer', () => {
   it('records what was chosen instead, so confusion pairs are visible', () => {
     const score = scores.get('create-branch-colloquial')!;
     assert.equal(score.score, 0.6);
-    assert.deepEqual(score.confusions, [{ tool: 'list_branches', count: 2 }]);
+    assert.deepEqual(score.confusions, [{ selected: 'list_branches', count: 2 }]);
   });
 
   it('flags the dangerous middle band', () => {
@@ -95,7 +95,7 @@ describe('scorer', () => {
     assert.equal(score.restraint, true);
     assert.equal(score.score, 0.8);
     assert.equal(score.passed, false, 'restraint below the 0.95 default should fail');
-    assert.deepEqual(score.confusions, [{ tool: 'list_branches', count: 1 }]);
+    assert.deepEqual(score.confusions, [{ selected: 'list_branches', count: 1 }]);
   });
 
   it('separates argument accuracy from selection', () => {
@@ -142,9 +142,10 @@ describe('scorer', () => {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Stand-in for the skills presenter, which does not exist yet: the model calls
- * one dispatch tool and names the skill in its arguments. Everything else
- * passes through — dropping an unmappable call would fabricate restraint.
+ * A dispatch projection standing in for the skills one, kept local so these
+ * tests exercise the scorer's hook rather than that adapter: the model calls
+ * one tool and names the selection in its arguments. Everything else passes
+ * through — dropping an unmappable call would fabricate restraint.
  */
 const dispatch: Projection = (calls) =>
   calls.map((call) => {
@@ -192,7 +193,7 @@ describe('scorer projection', () => {
       0.9,
       { project: dispatch },
     );
-    assert.deepEqual(score.confusions, [{ tool: 'summarise', count: 1 }]);
+    assert.deepEqual(score.confusions, [{ selected: 'summarise', count: 1 }]);
   });
 
   it('matches arguments against the projected call', () => {
@@ -213,7 +214,7 @@ describe('scorer projection', () => {
       { project: dispatch },
     );
     assert.equal(score.score, 0);
-    assert.deepEqual(score.confusions, [{ tool: 'review-pr + list_branches', count: 1 }]);
+    assert.deepEqual(score.confusions, [{ selected: 'review-pr + list_branches', count: 1 }]);
   });
 
   it('defaults to the identity, which is the MCP case', () => {

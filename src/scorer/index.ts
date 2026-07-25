@@ -122,7 +122,7 @@ export function scoreScenario(
     passed: scored > 0 && score >= threshold,
     flaky: score > FLAKY_LOW && score < FLAKY_HIGH,
     confusions: [...confusions.entries()]
-      .map(([tool, count]) => ({ tool, count }))
+      .map(([selected, count]) => ({ selected, count }))
       .sort((a, b) => b.count - a.count),
     errors,
   };
