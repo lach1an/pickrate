@@ -1,0 +1,115 @@
+name: CI
+
+# The repo's own checks. No API key and no spend anywhere in this file: every
+# eval below replays a recorded fixture, which is what lets each push exercise
+# the whole pipeline — analyser, adapters, runner, scorer, gates, exit codes —
+# end to end rather than only in unit tests.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor from package.json's engines, and current. A tool whose
+        # pitch is "run it on a clean machine" has to hold on both.
+        node: ['20.19', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  pipeline:
+    # The offline end-to-end pass. Each step asserts an exit code rather than
+    # merely "it ran": the 0/1/2 split is the contract CI consumers read, and a
+    # step that only checked for a crash would let the whole of it rot.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      - name: inspect renders a messy MCP surface
+        run: npx tsx src/cli.ts inspect test/fixtures/messy-server.json
+
+      - name: inspect renders a messy skills surface
+        run: npx tsx src/cli.ts inspect test/fixtures/skills/messy
+
+      - name: inspect exits 1 on findings at or above --fail-on
+        run: |
+          set +e
+          npx tsx src/cli.ts inspect test/fixtures/messy-server.json --fail-on error >/dev/null
+          code=$?
+          [ "$code" = "1" ] || { echo "expected exit 1, got $code"; exit 1; }
+
+      - name: inspect exits 0 on a clean surface, with no credentials present
+        env:
+          ANTHROPIC_API_KEY: ''
+        run: npx tsx src/cli.ts inspect test/fixtures/skills/clean
+
+      - name: a replayed MCP run exits 1 — the fixture is below threshold by design
+        run: |
+          set +e
+          npx tsx src/cli.ts run test/fixtures/pickrate.yaml \
+            --replay test/fixtures/trials/git-server.json --out /tmp/mcp.json
+          code=$?
+          [ "$code" = "1" ] || { echo "expected exit 1, got $code"; exit 1; }
+
+      - name: a replayed skills run exits 1
+        run: |
+          set +e
+          npx tsx src/cli.ts run test/fixtures/skills-eval.yaml \
+            --replay test/fixtures/trials/skills.json --format markdown >> "$GITHUB_STEP_SUMMARY"
+          code=$?
+          [ "$code" = "1" ] || { echo "expected exit 1, got $code"; exit 1; }
+
+      - name: a baseline comparison finds the seeded regression
+        run: |
+          set +e
+          npx tsx src/cli.ts run test/fixtures/pickrate.yaml \
+            --replay test/fixtures/trials/git-server.json \
+            --baseline test/fixtures/reports/git-server-baseline.json
+          code=$?
+          [ "$code" = "1" ] || { echo "expected exit 1, got $code"; exit 1; }
+
+      - name: a run where every trial errors exits 2, not 1
+        run: |
+          set +e
+          npx tsx src/cli.ts run test/fixtures/pickrate.yaml \
+            --replay test/fixtures/trials/git-server.json --max-error-rate 0 >/dev/null
+          code=$?
+          [ "$code" = "2" ] || { echo "expected exit 2, got $code"; exit 1; }
+
+  action:
+    # An Action that is only tested by its consumers is not tested. `version:
+    # local` builds this checkout, so the composite steps, the input wiring and
+    # the exit-code propagation are exercised here rather than downstream.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: inspect a clean skills surface through the Action
+        uses: ./
+        with:
+          command: inspect
+          target: test/fixtures/skills/clean
+          version: local
+          artifact: 'false'
+          summary: 'true'

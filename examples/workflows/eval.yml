@@ -1,0 +1,103 @@
+name: pickrate
+
+# Copy this into .github/workflows/ of the repo holding your MCP server or
+# your skills directory.
+#
+# Three tiers, by cost:
+#   inspect  — every PR, free, needs no API key at all
+#   run      — every PR that has a key, compared against a committed baseline
+#   mutate   — weekly, because it costs 2 clean runs plus one per mutant
+#
+# Exit codes the steps below act on:
+#   0  measured, gates passed
+#   1  measured, and the answer is bad  (threshold breach, regression)
+#   2  could not measure                (unreachable target, too many errors)
+# The 1/2 split is why "no answer" never shows up as a red eval here.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, on Monday morning. The expensive one.
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+  pull-requests: write # only for the PR comment
+
+jobs:
+  inspect:
+    # Free and credential-less, so it runs on every PR from forks too. Static
+    # analysis of the surface: token cost, missing descriptions, near-duplicate
+    # descriptions the model will confuse.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lach1an/pickrate@v0
+        with:
+          command: inspect
+          config: pickrate.yaml
+          comment: 'true'
+
+  eval:
+    # Skipped rather than failed when there is no key — a fork PR should not go
+    # red for lacking a secret it was never going to have.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Is there a key?
+        id: key
+        run: echo "present=${{ secrets.ANTHROPIC_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
+      - if: steps.key.outputs.present == 'true'
+        uses: lach1an/pickrate@v0
+        with:
+          command: run
+          config: pickrate.yaml
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # The committed baseline. Refresh it with baseline-refresh.yml, and
+          # pin a dated model id in pickrate.yaml — an alias can be re-pointed
+          # underneath a stored baseline, which turns a model update into
+          # something that reads exactly like a regression.
+          baseline: pickrate-baseline.json
+          comment: 'true'
+
+      # ── Alternative: restore the last run from a CI artifact ──────────────
+      #
+      # Zero infrastructure, and no file in the repo. The cost is a failure
+      # mode worth reading twice: artifacts expire, they are not addressable by
+      # sha, and a red default branch means no artifact — which means no
+      # baseline, which means the regression gate silently does not run. A
+      # committed file makes the baseline moving a reviewed diff instead.
+      #
+      # - uses: dawidd6/action-download-artifact@v6
+      #   continue-on-error: true
+      #   with:
+      #     workflow: pickrate.yml
+      #     branch: main
+      #     name: pickrate-report
+      #     path: baseline/
+      # - uses: lach1an/pickrate@v0
+      #   with:
+      #     command: run
+      #     config: pickrate.yaml
+      #     anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      #     baseline: baseline/pickrate-report.json
+
+  mutate:
+    # How much to believe the numbers above: break the surface on purpose and
+    # check the eval noticed. Weekly, because it costs two clean runs for the
+    # noise floor plus one run per injected defect.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lach1an/pickrate@v0
+        with:
+          command: mutate
+          config: pickrate.yaml
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          artifact: 'true'

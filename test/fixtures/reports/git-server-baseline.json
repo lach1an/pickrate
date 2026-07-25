@@ -1,0 +1,97 @@
+{
+  "_comment": [
+    "A stored `run` report, to diff the replayed git-server run against.",
+    "Hand-tuned so every comparison case is exercised by construction rather than by luck.",
+    "The replayed run scores 100 / 60 / 80 / 75, and its smallest scored scenario has 4 trials,",
+    "so the noise floor is minNoise(4) = 25%:",
+    "  create-branch             90 -> 100  improved, and fixed (it failed here, passes there)",
+    "  create-branch-colloquial 100 ->  60  a 40-point drop, past the floor: a regression",
+    "  no-tool-needed            95 ->  80  a 15-point drop, inside the floor: NOT a regression,",
+    "                                       though it is a new failure against its 95% threshold",
+    "  create-branch-named       80 ->  75  a 5-point drop, noise",
+    "orphans is empty, so `delete_branch` reads as a new orphan.",
+    "The model is an alias rather than a dated snapshot, which must warn."
+  ],
+  "schemaVersion": 2,
+  "command": "run",
+  "source": {
+    "kind": "file",
+    "adapter": "mcp",
+    "target": "./git-server.json",
+    "fetchedAt": "2026-07-11T09:00:00.000Z"
+  },
+  "model": "claude-haiku-4-5",
+  "trials": 5,
+  "startedAt": "2026-07-11T09:00:00.000Z",
+  "durationMs": 41233,
+  "summary": {
+    "scenarios": 4,
+    "failed": 2,
+    "flaky": 0,
+    "errored": 0
+  },
+  "scenarios": [
+    {
+      "id": "create-branch",
+      "prompt": "make me a branch called feature-login",
+      "expected": "create_branch",
+      "threshold": 0.95,
+      "selection": { "passed": 5, "total": 5, "rate": 1 },
+      "args": { "passed": 4, "total": 5, "rate": 0.8 },
+      "restraint": false,
+      "score": 0.9,
+      "passed": false,
+      "flaky": false,
+      "confusions": [],
+      "errors": 0
+    },
+    {
+      "id": "create-branch-colloquial",
+      "prompt": "can you branch off main for the login work",
+      "expected": "create_branch",
+      "threshold": 0.8,
+      "selection": { "passed": 5, "total": 5, "rate": 1 },
+      "restraint": false,
+      "score": 1,
+      "passed": true,
+      "flaky": false,
+      "confusions": [],
+      "errors": 0
+    },
+    {
+      "id": "no-tool-needed",
+      "prompt": "what's the capital of France?",
+      "expected": null,
+      "threshold": 0.95,
+      "selection": { "passed": 5, "total": 5, "rate": 1 },
+      "restraint": true,
+      "score": 0.95,
+      "passed": true,
+      "flaky": false,
+      "confusions": [],
+      "errors": 0
+    },
+    {
+      "id": "create-branch-named",
+      "prompt": "start a hotfix branch",
+      "expected": "create_branch",
+      "threshold": 0.95,
+      "selection": { "passed": 5, "total": 5, "rate": 1 },
+      "args": { "passed": 4, "total": 5, "rate": 0.8 },
+      "restraint": false,
+      "score": 0.8,
+      "passed": false,
+      "flaky": false,
+      "confusions": [],
+      "errors": 0
+    }
+  ],
+  "orphans": [],
+  "usage": {
+    "inputTokens": 412,
+    "outputTokens": 806,
+    "cacheCreationInputTokens": 1080,
+    "cacheReadInputTokens": 5400
+  },
+  "costUsd": 0.0021
+}

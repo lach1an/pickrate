@@ -1,7 +1,7 @@
 import pc from 'picocolors';
 import { formatUsd } from '../provider/pricing.js';
 import { itemNoun } from '../surface.js';
-import type { EvalReport, ScenarioScore } from '../types.js';
+import type { EvalReport, ReportDiff, ScenarioScore } from '../types.js';
 
 const BAR_WIDTH = 16;
 
@@ -13,7 +13,7 @@ const BAR_WIDTH = 16;
  * game it. Confusion pairs and orphan tools tell you what to change; a total
  * only tells you whether to feel good.
  */
-export function formatEvalReport(report: EvalReport): string {
+export function formatEvalReport(report: EvalReport, diff?: ReportDiff): string {
   const out: string[] = [''];
   // "picked the right tool" is wrong on a skills run, and a report that uses
   // the wrong noun reads like it measured the wrong thing.
@@ -41,6 +41,14 @@ export function formatEvalReport(report: EvalReport): string {
 
   out.push(formatScenarioTable(report.scenarios, noun));
   out.push('');
+
+  if (diff) {
+    // Above the confusion pairs and well above the summary: on a `--baseline`
+    // run this is what the reader came for. "This PR dropped selection from
+    // 94% to 71%" is the finding; the absolute score is context for it.
+    out.push(formatDiff(diff, noun));
+    out.push('');
+  }
 
   const confusion = formatConfusion(report.scenarios);
   if (confusion) {
@@ -94,6 +102,55 @@ function formatScenarioTable(scenarios: ScenarioScore[], noun: string): string {
   }
 
   return lines.join('\n');
+}
+
+/**
+ * The baseline comparison.
+ *
+ * Every scenario that moved is listed, but only movement past the floor is
+ * called a regression — and the floor is printed next to the verdict, because a
+ * reader who cannot see the tolerance cannot tell a quiet run from a strict one.
+ */
+export function formatDiff(diff: ReportDiff, noun: string): string {
+  const moved = diff.scenarios.filter((scenario) => Math.abs(scenario.delta) > 0);
+  const lines = [
+    pc.dim('  vs baseline') +
+      pc.dim(`  ${diff.baseline.path} · ${diff.baseline.model} · ${diff.baseline.startedAt}`),
+  ];
+
+  if (moved.length === 0) {
+    lines.push(pc.dim('    every scenario landed where it did on the baseline'));
+  } else {
+    const width = Math.max(...moved.map((scenario) => scenario.id.length));
+    for (const scenario of moved) {
+      const size = `${Math.round(Math.abs(scenario.delta) * 100)}%`;
+      const text = `${scenario.delta > 0 ? '+' : '−'}${size}`.padStart(5);
+      const paint = scenario.regressed ? pc.red : scenario.delta > 0 ? pc.green : pc.dim;
+      lines.push(
+        `    ${scenario.id.padEnd(width)}  ${pc.dim(`${pct(scenario.baseline)} →`)} ${pct(scenario.head)}` +
+          `  ${paint(text)}${scenario.regressed ? `  ${pc.red('regressed')}` : ''}`,
+      );
+    }
+  }
+
+  if (diff.newOrphans.length > 0) {
+    lines.push(pc.dim(`    new orphan ${noun}: ${diff.newOrphans.join(', ')}`));
+  }
+
+  // A single run per side cannot measure its own noise — `mutate` can, by
+  // running the clean surface twice. Say where an honest floor comes from
+  // rather than implying this one is it.
+  lines.push(
+    pc.dim(`    Drops under ${pct(diff.floor)} are inside the noise and are not counted.`),
+    pc.dim('    One run per side cannot measure noise; mutate can, or raise trials.'),
+  );
+  for (const warning of diff.warnings) lines.push(pc.yellow(`    ! ${warning}`));
+
+  return lines.join('\n');
+}
+
+function pct(value: number): string {
+  return `${Math.round(value * 100)}%`;
 }
 
 function formatConfusion(scenarios: ScenarioScore[]): string | undefined {

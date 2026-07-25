@@ -1,7 +1,7 @@
 # MCP Agent Evaluation Harness — Project Spec
 
 **Name:** `pickrate` — settled 25 July 2026, see [`skills-adapter-plan.md`](skills-adapter-plan.md) §11. (Was `mcpeval`; `toolcheck` and `manifest` also considered.)
-**Status:** Draft v0.1 — pre-code
+**Status:** M1–M3 implemented (`inspect`, `run`, `mutate`, both adapters). M4 in progress — see [`ci-plan.md`](ci-plan.md). Published to npm.
 **Date:** 25 July 2026
 
 ---
@@ -330,7 +330,7 @@ Multi-model comparison (does your server work on Claude but not GPT?), security 
 3. **Where do scenarios come from?** Hand-written for v1 — settled, and the mutation work in §6 is what makes generation safe to add later. When you do add it, generation drafts and a human accepts; reviewing thirty generated scenarios is twenty minutes against three hours to write them, and a human deciding what "correct" means is what breaks the circularity.
 4. **Do you score arguments strictly or semantically?** Strict by default, opt-in semantic — settled by §6, since strict matching keeps an LLM judge out of the primary metric entirely.
 5. **How many mutants before the score means anything?** Open. Too few and the mutation score is noise; too many and every run costs real money. Start at three operators × three tools and see what the variance looks like.
-6. **Name and licence.** Open-core is the natural shape here — CLI open source, CI/hosted reporting paid.
+6. **Name and licence.** ~~Open-core is the natural shape here — CLI open source, CI/hosted reporting paid.~~ **Settled 25 July 2026:** `pickrate` (reasoning in [`skills-adapter-plan.md`](skills-adapter-plan.md) §11.3), MIT, published to npm and public at `lach1an/pickrate`. Open-core remains the intended shape: the CLI is the free artifact, and hosted history is where §6's baseline persistence would attach later (see [`ci-plan.md`](ci-plan.md) §1.5).
 
 ---
 

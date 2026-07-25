@@ -1,0 +1,89 @@
+name: pickrate baseline refresh
+
+# The other half of the committed-baseline pattern, and not an optional half.
+#
+# A committed baseline is the right home for a stochastic number: the baseline
+# moving becomes a reviewed diff, and a human seeing "94% → 91%" in a PR decides
+# whether that is drift or damage. An automatic store makes that decision by
+# silence.
+#
+# What it needs in exchange is this job. Model aliases get re-pointed on nobody's
+# schedule, so a baseline left alone quietly accumulates model drift until one
+# PR eats the whole gap at once and nobody can say which part was theirs. This
+# re-measures on the default branch and opens a PR when the number has moved
+# more than the noise floor — so staleness stays visible rather than compounding.
+
+on:
+  schedule:
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Re-measure the default branch
+        id: measure
+        uses: lach1an/pickrate@v0
+        continue-on-error: true # a regression here is the point, not a failure
+        with:
+          command: run
+          config: pickrate.yaml
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          baseline: pickrate-baseline.json
+          report-path: pickrate-fresh.json
+          comment: 'false'
+
+      - name: Refuse to overwrite a baseline we could not measure
+        if: steps.measure.outputs.exit-code == '2'
+        run: |
+          # Exit 2 is "could not measure". Committing that as the new baseline
+          # would bake an outage into the comparison for everyone after us.
+          echo "::error::The run could not be measured — leaving the baseline alone."
+          exit 1
+
+      - name: Did anything move past the floor?
+        id: moved
+        run: |
+          moved=$(node -e '
+            const fs = require("node:fs");
+            const fresh = JSON.parse(fs.readFileSync("pickrate-fresh.json", "utf8"));
+            const diff = fresh.diff;
+            if (!diff) { process.stdout.write("true"); return; }
+            const past = diff.scenarios.some((s) => Math.abs(s.delta) > diff.floor);
+            process.stdout.write(String(past));
+          ')
+          echo "moved=$moved" >> "$GITHUB_OUTPUT"
+
+      - name: Stage the refreshed baseline
+        if: steps.moved.outputs.moved == 'true'
+        run: cp pickrate-fresh.json pickrate-baseline.json
+
+      - name: Open a PR with the new baseline
+        if: steps.moved.outputs.moved == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: Refresh the pickrate baseline
+          branch: pickrate/baseline-refresh
+          title: Refresh the pickrate baseline
+          add-paths: pickrate-baseline.json
+          body: |
+            The measured surface has moved further than the noise floor since
+            the committed baseline was recorded.
+
+            Before merging, decide which this is:
+
+            - **Drift.** The model alias was re-pointed, or variance. Merge, and
+              consider pinning a dated model id in `pickrate.yaml` so the next
+              comparison can tell the two apart.
+            - **Damage.** Something about the surface got worse on the default
+              branch. Do not merge — fix it, or you are moving the goalposts to
+              wherever the regression put them.
+
+            The full report is attached to the run as an artifact.

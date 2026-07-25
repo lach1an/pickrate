@@ -1,5 +1,19 @@
 import { countBySeverity } from '../analyser/index.js';
-import type { Analysis, EvalReport, MutationReport } from '../types.js';
+import type { Analysis, EvalReport, GateResult, MutationReport, ReportDiff } from '../types.js';
+
+/**
+ * CI results attached to a report at print time.
+ *
+ * Additive, so `SCHEMA_VERSION` stays 2 — a consumer pinned on 2 ignores keys
+ * it has never seen. They are a parameter rather than fields on `EvalReport`
+ * because a gate verdict is not a measurement: the same run judged against two
+ * configs is one measurement and two verdicts, and only one of those belongs
+ * in a stored baseline.
+ */
+export interface CiExtras {
+  gates?: GateResult[];
+  diff?: ReportDiff;
+}
 
 /**
  * Bump when a shape below changes incompatibly. CI consumers pin on this.
@@ -17,7 +31,7 @@ import type { Analysis, EvalReport, MutationReport } from '../types.js';
 export const SCHEMA_VERSION = 2;
 
 /** Machine-readable report. Stable shape — M4's CI integration reads this. */
-export function formatAnalysisJson(analysis: Analysis): string {
+export function formatAnalysisJson(analysis: Analysis, extras: CiExtras = {}): string {
   return JSON.stringify(
     {
       schemaVersion: SCHEMA_VERSION,
@@ -27,6 +41,7 @@ export function formatAnalysisJson(analysis: Analysis): string {
       tokens: analysis.tokens,
       summary: countBySeverity(analysis.findings),
       findings: analysis.findings,
+      ...(extras.gates ? { gates: extras.gates } : {}),
     },
     null,
     2,
@@ -34,7 +49,7 @@ export function formatAnalysisJson(analysis: Analysis): string {
 }
 
 /** Machine-readable eval report. */
-export function formatEvalReportJson(report: EvalReport): string {
+export function formatEvalReportJson(report: EvalReport, extras: CiExtras = {}): string {
   const failed = report.scenarios.filter((s) => !s.passed);
 
   return JSON.stringify(
@@ -57,6 +72,8 @@ export function formatEvalReportJson(report: EvalReport): string {
       orphans: report.orphans,
       usage: report.usage,
       ...(report.costUsd !== undefined ? { costUsd: report.costUsd } : {}),
+      ...(extras.gates ? { gates: extras.gates } : {}),
+      ...(extras.diff ? { diff: extras.diff } : {}),
     },
     null,
     2,
@@ -72,7 +89,7 @@ export function formatEvalReportJson(report: EvalReport): string {
  * could never tell a survivor with no coverage from a survivor the harness is
  * blind to.
  */
-export function formatMutationReportJson(report: MutationReport): string {
+export function formatMutationReportJson(report: MutationReport, extras: CiExtras = {}): string {
   return JSON.stringify(
     {
       schemaVersion: SCHEMA_VERSION,
@@ -93,6 +110,7 @@ export function formatMutationReportJson(report: MutationReport): string {
       mutants: report.mutants,
       usage: report.usage,
       ...(report.costUsd !== undefined ? { costUsd: report.costUsd } : {}),
+      ...(extras.gates ? { gates: extras.gates } : {}),
     },
     null,
     2,

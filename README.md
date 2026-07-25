@@ -8,7 +8,7 @@ A tool manifest is a prompt. Names, descriptions and schemas are the entire inte
 
 The same question applies to Agent Skills, for the same reason: a skill is selected from a one-line description too. Both surfaces go through the same measurement.
 
-> Status: **M2 complete**, adapter split complete. `inspect` (static analysis) and `run` (selection eval) both work, on MCP servers and on skills directories. The mutator is not built yet — see [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md) and [`plans/skills-adapter-plan.md`](plans/skills-adapter-plan.md).
+> Status: **M1–M4 complete**, on npm. `inspect` (static analysis), `run` (selection eval) and `mutate` (how much to trust the eval) all work on MCP servers and skills directories alike, and all three are wired for CI — an exit-code contract, gates in the config file, and baseline comparison. See [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md) for the reasoning behind all of it. **M5 (the leaderboard) is next.**
 
 ## Quick start
 
@@ -72,7 +72,10 @@ Directories are ambiguous — an MCP server project is a directory too — so a 
 ## Options
 
 ```
---json                  machine-readable output (stable shape, see src/report/json.ts)
+--format <mode>         table (default), json or markdown
+--json                  alias for --format json (stable shape, see src/report/json.ts)
+--out <file>            write the JSON report here, whatever --format prints
+--config <file>         inspect: read target: and the ci: gates from a config file
 --fail-on <severity>    exit 1 on findings at or above this level
                         (error | warn | info | none, default: none)
 --disable <ids>         comma-separated rule ids to skip
@@ -121,8 +124,14 @@ pickrate run  npx -y @modelcontextprotocol/server-filesystem /tmp
 --yes                   skip the cost confirmation
 --model <id>            override defaults.model
 --trials <n>            override defaults.trials
+--target <t>            override the config's target
 --replay <file>         replay recorded trials instead of calling a model
 --presentation <mode>   skills only: skill-tool (default) or pseudo-tool
+--baseline <file>       compare against a stored JSON report
+--max-regression <0..1> worst per-scenario drop allowed, against --baseline
+--max-flaky <n>         scenarios allowed in the 20–80% band
+--max-orphans <n>       items allowed that no scenario ever selected
+--max-error-rate <0..1> errored trials before the run counts as unmeasured
 ```
 
 ### Presenting skills
@@ -243,6 +252,109 @@ The gap is floored at `1/trials`: one trial flipping is worth that much, and two
 
 Cost is `(2 + mutants) × trials × scenarios`, and each run is a different surface and so a different cached prefix. `--dry-run` prices it first.
 
+## CI
+
+Nobody buys "your server scores 87/100" — unfalsifiable, and they know it. They buy **"this PR dropped selection from 94% to 71%."** So the CI story is a regression detector, not a linter with a threshold.
+
+```yaml
+# .github/workflows/pickrate.yml
+- uses: lach1an/pickrate@v0
+  with:
+    command: inspect              # free, no key — run this one on every PR
+    config: pickrate.yaml
+    comment: 'true'
+
+- uses: lach1an/pickrate@v0
+  with:
+    command: run
+    config: pickrate.yaml
+    anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+    baseline: pickrate-baseline.json
+```
+
+Copy [`examples/workflows/eval.yml`](examples/workflows/eval.yml) for the full three-tier version, and [`examples/workflows/baseline-refresh.yml`](examples/workflows/baseline-refresh.yml) alongside it.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | measured, gates passed |
+| `1` | **measured, and the answer is bad** — threshold breach, `failOn`, a regression |
+| `2` | **could not measure** — usage error, unreachable target, too many errored trials |
+| `130` | cancelled at the cost confirmation |
+
+The 1/2 split is the whole table. A dead server must never read as a failed eval, and a failed eval must never read as green — nobody debugs a manifest that was never the problem, and nobody reads the log of a green build.
+
+### Gates live in the config
+
+A threshold argued over in review belongs in the repo next to the scenarios it judges, not in a YAML string in `.github/workflows/`. Every gate is off by default except one:
+
+```yaml
+ci:
+  failOn: warn        # inspect: findings at or above this severity
+  maxTokens: 20000    # inspect: resident tokens (skill bodies never counted)
+  maxFlaky: 0         # run: scenarios in the 20–80% band
+  maxOrphans: 0       # run: items no scenario ever selected
+  maxErrorRate: 0.1   # run: errored trials — the one that defaults on
+  maxRegression: 0.05 # run --baseline: worst per-scenario drop
+  minScore: 0.7       # mutate: mutation score floor
+```
+
+CLI flags override the file. An unknown key under `ci:` is an error, not a shrug: a misspelled `maxFlakey:` is a gate its author believes is guarding them, and the only moment its silence becomes visible is the one where it was needed.
+
+**`maxErrorRate` defaults on, and breaches as *unmeasured* rather than failed.** Errored trials leave the denominator, so a run where 18 of 20 trials died on transport reports a confident 100% from the two that survived. Locally that's fine — a human sees the "18 errored" line. In CI nobody is looking.
+
+There is deliberately **no gate on the mean score**. Per-scenario thresholds already gate, and a headline mean is precisely the number people optimise.
+
+### Baseline comparison
+
+```bash
+pickrate run pickrate.yaml --out pickrate-baseline.json      # on your default branch, committed
+pickrate run pickrate.yaml --baseline pickrate-baseline.json # on PRs
+```
+
+```
+  vs baseline  pickrate-baseline.json · claude-haiku-4-5-20251001 · 2026-07-11
+    create-branch             90% → 100%   +10%
+    create-branch-colloquial  100% → 60%   −40%  regressed
+    no-tool-needed            95% → 80%    −15%
+    Drops under 25% are inside the noise and are not counted.
+    One run per side cannot measure noise; mutate can, or raise trials.
+```
+
+Two rules keep it honest:
+
+- **A diff between two single runs is not a noise measurement.** `mutate` measures its floor by running the clean surface twice; `--baseline` has one run per side and cannot. So the tolerance is floored at `1/trials` and the report says where an honest floor comes from. Without that, the build goes red on the noise as readily as on the regression.
+- **A mismatched baseline is refused, not projected.** A different schema version, adapter, model, presentation or scenario set is an error and exit 2. A comparison across models is a number that looks like a regression and is a model swap.
+
+It gates on the **worst per-scenario drop, never the mean** — a mean hides one scenario collapsing behind five that improved, and the collapsed one is the one headed for production.
+
+**Pin a dated model id** in any config used for comparison. `claude-haiku-4-5` is an alias the provider can re-point underneath a stored baseline, which turns a model update into something indistinguishable from your regression; `--baseline` warns when it sees one.
+
+### Why the baseline is a committed file
+
+The same choice Stryker makes with `stryker-incremental.json`, for the same reason: **the measurement is expensive, so you cannot re-derive the base side on demand.** Recomputing both sides in one job — what `size-limit-action` does — works because bundle size is deterministic and free, and doubles the API bill here.
+
+Committing it also suits a *stochastic* number better than an automatic store does. The baseline moving becomes a reviewed diff, and a human seeing "94% → 91%" decides whether that is drift or damage. An automatic store makes that decision by silence.
+
+What it needs in exchange is [the weekly refresh job](examples/workflows/baseline-refresh.yml), which re-measures the default branch and opens a PR when the number has moved past the floor. Without it, drift accumulates until one PR eats the whole gap at once.
+
+### The Action
+
+`pickrate` never talks to GitHub. Comments, artifacts and step summaries are the Action's job, done with `gh` and shell redirection — which is what keeps the whole CI surface testable offline and leaves no GitHub token anywhere in `src/`. One invocation emits both artifacts (`--format markdown` to the summary, `--out` to the upload), because running the eval twice to get two formats doubles the bill for no new measurement.
+
+| Input | |
+|---|---|
+| `command` | `inspect` (default), `run`, `mutate` |
+| `config` / `target` / `adapter` | what to measure |
+| `version` | npm range, or `local` to build the checkout |
+| `anthropic-api-key` | omit it for `inspect` — that is the point of `inspect` |
+| `baseline` | a stored JSON report to compare against |
+| `comment` / `summary` / `artifact` | where the report goes |
+| `args` | extra CLI flags, appended verbatim |
+
+Outputs: `exit-code`, `report-path`, and `score` — the mutation score for `mutate`, the *worst* scenario score for `run`.
+
 ## Rules
 
 | Rule | Surface | Default | What it catches |
@@ -264,6 +376,18 @@ Rules are pure functions — surface in, findings out. No network, no model. Kee
 
 For skills, the headline token figure is **routing cost only** — the name and description resident in every request. Bodies are reported on their own line, because they cost nothing until the skill triggers, and conflating the two hides the thing progressive disclosure exists to give you.
 
+## Roadmap
+
+| | | |
+|---|---|---|
+| **M1** | Analyser — `inspect`, no API key, no cost | ✅ shipped |
+| **M2** | Runner + scorer — `run`, pass rates and confusion | ✅ shipped |
+| **M3** | Mutator — `mutate`, a mutation score over injected defects | ✅ shipped |
+| **M4** | CI — exit-code contract, gates in config, baseline diff, a GitHub Action | ✅ [shipped](plans/ci-plan.md) |
+| **M5** | The leaderboard — run it against the best-known public servers and skills, publish the methodology | next |
+
+The adapter split (MCP + Agent Skills through one engine) landed alongside M2; see [`plans/skills-adapter-plan.md`](plans/skills-adapter-plan.md).
+
 ## Development
 
 ```bash
@@ -279,6 +403,11 @@ npm run dev -- run test/fixtures/pickrate.yaml \
 
 npm run dev -- run test/fixtures/skills-eval.yaml \
   --replay test/fixtures/trials/skills.json
+
+# The baseline diff, also offline — the fixture has a seeded regression.
+npm run dev -- run test/fixtures/pickrate.yaml \
+  --replay test/fixtures/trials/git-server.json \
+  --baseline test/fixtures/reports/git-server-baseline.json
 ```
 
 Fixtures in `test/fixtures/` let every component be developed with no server running and no API spend — captured `tools/list` responses and `SKILL.md` trees for the analyser, recorded trials for the scorer, and `mutation.yaml` for the mutation loop. Each surface has a clean fixture (a test asserts it produces zero findings) and a messy one that trips every rule.
@@ -298,7 +427,9 @@ src/
   runner/      N trials × M scenarios, bounded concurrency
   scorer/      pass rates, confusion matrix, orphans, flakiness
   mutator/     injects known defects, scores what the harness caught (M3)
-  report/      table and JSON output
+  ci/          gate engine and baseline diff — pure, no I/O, no model (M4)
+  report/      table, JSON and markdown output
+  exit.ts      the exit-code contract, and nothing else
   types.ts     the domain model everything else shares
 ```
 

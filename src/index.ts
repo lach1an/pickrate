@@ -28,7 +28,31 @@ export {
 } from './adapters/index.js';
 export { mcpAdapter, loadManifest, loadManifestFromFile } from './adapters/mcp/index.js';
 export { skillsAdapter, loadSkills, loadSkillFile } from './adapters/skills/index.js';
-export { loadConfig, parseConfig, ConfigError, DEFAULTS, trialsFor, thresholdFor } from './config/index.js';
+export {
+  loadConfig,
+  parseConfig,
+  parseCi,
+  ConfigError,
+  DEFAULTS,
+  DEFAULT_GATES,
+  trialsFor,
+  thresholdFor,
+} from './config/index.js';
+export { Exit, type ExitCode } from './exit.js';
+export {
+  evaluateAnalysisGates,
+  evaluateRunGates,
+  evaluateMutationGates,
+  exitCodeFor,
+  trialCounts,
+} from './ci/gates.js';
+export { diffReports, isDatedSnapshot, STALE_DAYS, type CompareOptions } from './ci/compare.js';
+export {
+  readReportFile,
+  parseReportFile,
+  BaselineError,
+  type StoredReport,
+} from './ci/report-file.js';
 export {
   costOf,
   PRICES,
@@ -83,9 +107,17 @@ export {
 export { formatAnalysis } from './report/table.js';
 export { formatEvalReport } from './report/eval.js';
 export { formatMutationReport } from './report/mutation.js';
+export { formatGates } from './report/gates.js';
+export {
+  formatAnalysisMarkdown,
+  formatEvalMarkdown,
+  formatMutationMarkdown,
+  COMMENT_MARKER,
+} from './report/markdown.js';
 export {
   formatAnalysisJson,
   formatEvalReportJson,
   formatMutationReportJson,
   SCHEMA_VERSION,
+  type CiExtras,
 } from './report/json.js';

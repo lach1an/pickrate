@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import type { EvalConfig, EvalDefaults, Expectation, Scenario } from '../types.js';
+import type { CiGates, EvalConfig, EvalDefaults, Expectation, Scenario, Severity } from '../types.js';
 
 export const DEFAULTS: EvalDefaults = {
   trials: 20,
@@ -9,6 +9,29 @@ export const DEFAULTS: EvalDefaults = {
   model: 'claude-haiku-4-5',
   concurrency: 4,
 };
+
+/**
+ * Gates as they stand with no `ci:` block at all.
+ *
+ * Only one is on. `maxErrorRate` defaults because its failure mode is silent:
+ * a run that could not measure anything reports the survivors' score with
+ * total confidence, and in CI nobody is watching. Every other gate is a
+ * judgement about a particular surface and has no defensible default.
+ */
+export const DEFAULT_GATES: CiGates = {
+  maxErrorRate: 0.1,
+};
+
+/** Keys accepted under `ci:`. Anything else is an error, not a shrug. */
+const CI_KEYS = [
+  'failOn',
+  'maxTokens',
+  'maxFlaky',
+  'maxOrphans',
+  'maxErrorRate',
+  'maxRegression',
+  'minScore',
+] as const;
 
 /** Thrown with a path into the document, e.g. `scenarios[2].expect.tool`. */
 export class ConfigError extends Error {
@@ -44,7 +67,43 @@ export function parseConfig(raw: unknown, path = 'pickrate.yaml'): EvalConfig {
     target: parseTargetBlock(block, key, path),
     defaults: parseDefaults(root.defaults),
     scenarios: parseScenarios(root.scenarios),
+    ci: parseCi(root.ci),
     path,
+  };
+}
+
+/**
+ * Parse the `ci:` block.
+ *
+ * Unknown keys are an error rather than ignored: a misspelled `maxFlakey:` is
+ * a gate the author believes is guarding them and which never fires, and the
+ * only moment it becomes visible is the one where it was needed.
+ */
+export function parseCi(raw: unknown): CiGates {
+  if (raw === undefined) return { ...DEFAULT_GATES };
+  const ci = object(raw, 'ci');
+
+  for (const key of Object.keys(ci)) {
+    if (!(CI_KEYS as readonly string[]).includes(key)) {
+      throw new ConfigError(`ci.${key}`, `unknown gate — expected one of: ${CI_KEYS.join(', ')}`);
+    }
+  }
+
+  return {
+    ...(ci.failOn !== undefined ? { failOn: severity(ci.failOn, 'ci.failOn') } : {}),
+    ...(ci.maxTokens !== undefined
+      ? { maxTokens: nonNegativeInt(ci.maxTokens, 'ci.maxTokens') }
+      : {}),
+    ...(ci.maxFlaky !== undefined ? { maxFlaky: nonNegativeInt(ci.maxFlaky, 'ci.maxFlaky') } : {}),
+    ...(ci.maxOrphans !== undefined
+      ? { maxOrphans: nonNegativeInt(ci.maxOrphans, 'ci.maxOrphans') }
+      : {}),
+    maxErrorRate:
+      threshold(ci.maxErrorRate, 'ci.maxErrorRate') ?? DEFAULT_GATES.maxErrorRate,
+    ...(ci.maxRegression !== undefined
+      ? { maxRegression: threshold(ci.maxRegression, 'ci.maxRegression')! }
+      : {}),
+    ...(ci.minScore !== undefined ? { minScore: threshold(ci.minScore, 'ci.minScore')! } : {}),
   };
 }
 
@@ -192,6 +251,20 @@ function positiveInt(value: unknown, path: string): number | undefined {
     throw new ConfigError(path, `expected a positive integer, got ${json(value)}`);
   }
   return value;
+}
+
+function nonNegativeInt(value: unknown, path: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new ConfigError(path, `expected a non-negative integer, got ${json(value)}`);
+  }
+  return value;
+}
+
+/** `none` and `null` both mean "off", so a gate can be disabled without deleting it. */
+function severity(value: unknown, path: string): Severity | null {
+  if (value === null || value === 'none') return null;
+  if (value === 'error' || value === 'warn' || value === 'info') return value;
+  throw new ConfigError(path, `expected "error", "warn", "info" or "none", got ${json(value)}`);
 }
 
 function threshold(value: unknown, path: string): number | undefined {
