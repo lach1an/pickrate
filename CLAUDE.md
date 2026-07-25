@@ -6,7 +6,7 @@ Full spec: [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md), plus [`plans/skil
 
 **M1 (analyser) and M2 (runner + scorer) — complete.** `pickrate inspect <target>` reports token cost and lint findings; `pickrate run <config.yaml>` runs scenarios × trials against a model and reports pass rates, confusion pairs, orphans and flakiness.
 
-**Adapter split — steps 1–2 of 6 done.** The core is generic over a `Surface` (`SurfaceItem = ToolDef | SkillDef`) and runs through an `Adapter` (`load` + `present`), with providers taking a `Presentation` rather than a `Surface`. MCP is still the only adapter: `parseTarget` already routes a skills directory, and `adapterFor('skills')` throws until step 4. Next is step 3, the scorer's `project` hook. M3 (mutator) and M4 (CI) are not started — and the mutator must land *after* the adapter work, or its operators get written twice.
+**Adapter split — steps 1–3 of 6 done.** The core is generic over a `Surface` (`SurfaceItem = ToolDef | SkillDef`) and runs through an `Adapter` (`load` + `present`), with providers taking a `Presentation` rather than a `Surface` and the scorer projecting raw calls onto selections. MCP is still the only adapter: `parseTarget` already routes a skills directory, and `adapterFor('skills')` throws until step 4. Next is step 4, the skills loader, fixtures and rules. M3 (mutator) and M4 (CI) are not started — and the mutator must land *after* the adapter work, or its operators get written twice.
 
 ## Invariants
 
@@ -30,6 +30,7 @@ Changing any of these changes what the numbers mean — don't adjust them casual
 - **Selection passes only on exactly one call, the expected one.** Over-eager tool calling is a real failure mode; scoring "right tool plus two others" as a pass would hide it.
 - **Arguments are matched as a subset** — only keys declared in `expect.args`. Extra arguments the model supplies are ignored, so a scenario never has to enumerate optional params.
 - **Normalisation trims strings and nothing else.** No lowercasing: branch names, paths and identifiers are case-sensitive, and wrong case *is* a wrong argument.
+- **Projection happens at score time, never to `TrialResult`.** The fixture on disk stays what the model actually did, so a recording survives a presenter rewrite. `Presentation.project` must be total: a projection that *drops* a call turns a bad selection into an empty call list, which scores as restraint — a false pass in the metric that is already the most neglected. Both `scoreScenario` and `findOrphans` project, each exactly once; skip it in `findOrphans` and every skill reads as an orphan.
 - **Errored trials leave the denominator** and are counted separately, so a flaky network doesn't read as a bad manifest.
 - **`tool_choice: auto` is mandatory** — a forced choice makes restraint scenarios impossible to express.
 - **Never `thinking: {type: "disabled"}`.** On some models that makes tool calls arrive as visible text rather than `tool_use` blocks, which this harness would silently score as "selected nothing" — a systematic error in the primary metric. Use `output_config.effort` for cost instead.

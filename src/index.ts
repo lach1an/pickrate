@@ -46,9 +46,11 @@ export {
   matchesSubset,
   totalUsage,
   defaultNormalise,
+  identityProjection,
   FLAKY_LOW,
   FLAKY_HIGH,
   type Normalise,
+  type Projection,
   type ScoreOptions,
 } from './scorer/index.js';
 export { runEval, totalTrials, mapPool, type RunOptions, type RunProgress } from './runner/index.js';

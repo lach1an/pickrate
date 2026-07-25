@@ -4,8 +4,22 @@ import { before, describe, it } from 'node:test';
 import { loadConfig } from '../src/config/index.js';
 import { loadManifestFromFile, mcpAdapter } from '../src/adapters/mcp/index.js';
 import { ReplayProvider } from '../src/provider/replay.js';
-import { findOrphans, matchesSubset, scoreRun, totalUsage } from '../src/scorer/index.js';
-import type { EvalConfig, ScenarioScore, Surface, TrialResult } from '../src/types.js';
+import {
+  findOrphans,
+  matchesSubset,
+  scoreRun,
+  scoreScenario,
+  totalUsage,
+  type Projection,
+} from '../src/scorer/index.js';
+import type {
+  EvalConfig,
+  Scenario,
+  ScenarioScore,
+  Surface,
+  ToolCall,
+  TrialResult,
+} from '../src/types.js';
 
 const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
 
@@ -122,6 +136,120 @@ describe('scorer', () => {
     assert.equal(usage.cacheCreationInputTokens, 240, 'one cache write for the whole run');
     assert.ok(usage.cacheReadInputTokens > 0);
     assert.ok(usage.outputTokens > 0);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Stand-in for the skills presenter, which does not exist yet: the model calls
+ * one dispatch tool and names the skill in its arguments. Everything else
+ * passes through — dropping an unmappable call would fabricate restraint.
+ */
+const dispatch: Projection = (calls) =>
+  calls.map((call) => {
+    if (call.name !== 'Skill' || typeof call.args.skill !== 'string') return call;
+    const { skill, ...rest } = call.args;
+    return { name: skill, args: rest };
+  });
+
+const skillTrial = (id: string, calls: ToolCall[]): TrialResult => ({
+  scenarioId: id,
+  calls,
+  stopReason: 'tool_use',
+  usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
+});
+
+const invoke = (skill: string, args: Record<string, unknown> = {}): ToolCall => ({
+  name: 'Skill',
+  args: { skill, ...args },
+});
+
+const scenario = (expect: Scenario['expect']): Scenario => ({
+  id: 'review',
+  prompt: 'review this pull request',
+  expect,
+});
+
+describe('scorer projection', () => {
+  it('scores the skill the model named, not the tool it called', () => {
+    const score = scoreScenario(
+      scenario({ tool: 'review-pr' }),
+      [skillTrial('review', [invoke('review-pr')])],
+      0.9,
+      { project: dispatch },
+    );
+    assert.equal(score.selection.rate, 1);
+    assert.equal(score.score, 1);
+  });
+
+  it('labels confusions by skill, so the pair is legible', () => {
+    // Without projection every confusion in a skills run reads "Skill", which
+    // is the same answer for every scenario and tells you nothing.
+    const score = scoreScenario(
+      scenario({ tool: 'review-pr' }),
+      [skillTrial('review', [invoke('summarise')])],
+      0.9,
+      { project: dispatch },
+    );
+    assert.deepEqual(score.confusions, [{ tool: 'summarise', count: 1 }]);
+  });
+
+  it('matches arguments against the projected call', () => {
+    const score = scoreScenario(
+      scenario({ tool: 'review-pr', args: { pr: '42' } }),
+      [skillTrial('review', [invoke('review-pr', { pr: '42' })])],
+      0.9,
+      { project: dispatch },
+    );
+    assert.equal(score.args?.rate, 1);
+  });
+
+  it('still fails an over-call, and names both halves of it', () => {
+    const score = scoreScenario(
+      scenario({ tool: 'review-pr' }),
+      [skillTrial('review', [invoke('review-pr'), { name: 'list_branches', args: {} }])],
+      0.9,
+      { project: dispatch },
+    );
+    assert.equal(score.score, 0);
+    assert.deepEqual(score.confusions, [{ tool: 'review-pr + list_branches', count: 1 }]);
+  });
+
+  it('defaults to the identity, which is the MCP case', () => {
+    const score = scoreScenario(
+      scenario({ tool: 'Skill' }),
+      [skillTrial('review', [invoke('review-pr')])],
+      0.9,
+    );
+    assert.equal(score.selection.rate, 1);
+  });
+});
+
+describe('findOrphans projection', () => {
+  const skills: Surface = {
+    kind: 'skills',
+    source: { kind: 'dir', adapter: 'skills', target: './skills', fetchedAt: '' },
+    items: ['review-pr', 'summarise'].map((name) => ({
+      kind: 'skill' as const,
+      name,
+      path: `./skills/${name}/SKILL.md`,
+      body: '',
+      frontmatter: {},
+      raw: {},
+    })),
+  };
+  const trials = new Map([['review', [skillTrial('review', [invoke('review-pr')])]]]);
+
+  it('counts a skill the model reached through the dispatch tool', () => {
+    assert.deepEqual(findOrphans(skills, trials, dispatch), ['summarise']);
+  });
+
+  it('would call every skill dead weight without it', () => {
+    // The failure this projection exists to prevent: raw calls all name the
+    // dispatch tool, so the headline diagnostic reports a working surface as
+    // 100% unused.
+    assert.deepEqual(findOrphans(skills, trials), ['review-pr', 'summarise']);
   });
 });
 

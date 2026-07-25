@@ -53,6 +53,14 @@ export async function runEval(
   // than something every adapter has to remember.
   const presentation = options.presentation ?? adapterFor(surface.kind).present(surface);
 
+  // How the adapter put the surface to the model decides how its answers are
+  // read back, so the projection travels with the presentation rather than
+  // being configured separately. An explicit override still wins.
+  const score: ScoreOptions = {
+    ...options.score,
+    project: options.score?.project ?? ((calls) => presentation.project(calls)),
+  };
+
   const jobs: Array<{ scenario: Scenario; index: number }> = [];
   for (const scenario of config.scenarios) {
     const trials = trialsFor(scenario, config.defaults);
@@ -97,7 +105,7 @@ export async function runEval(
       startedAt: startedAt.toISOString(),
       durationMs,
     },
-    options.score,
+    score,
   );
 
   const usage = totalUsage(trialsByScenario);

@@ -39,8 +39,19 @@ export const defaultNormalise: Normalise = (value) => {
   return value;
 };
 
+/**
+ * Raw model calls → the selections being scored. Supplied by the adapter's
+ * presentation; see `Presentation.project` for the rules it must obey.
+ */
+export type Projection = (calls: ToolCall[]) => ToolCall[];
+
+/** Selecting and calling are the same act — the MCP case. */
+export const identityProjection: Projection = (calls) => calls;
+
 export interface ScoreOptions {
   normalise?: Normalise;
+  /** Adapter-supplied. Defaults to identity, which is the MCP case. */
+  project?: Projection;
 }
 
 /** Score one scenario's trials. Pure: same trials in, same score out. */
@@ -51,6 +62,7 @@ export function scoreScenario(
   options: ScoreOptions = {},
 ): ScenarioScore {
   const normalise = options.normalise ?? defaultNormalise;
+  const project = options.project ?? identityProjection;
   const expected = scenario.expect.tool;
   const declaredArgs = scenario.expect.args;
 
@@ -67,9 +79,13 @@ export function scoreScenario(
       continue;
     }
 
-    const selected = selectionOf(trial.calls, expected);
+    // Projected once, here. `trial.calls` stays the raw transcript — the
+    // fixture on disk is what the model actually did, not what we made of it.
+    const calls = project(trial.calls);
+
+    const selected = selectionOf(calls, expected);
     if (!selected) {
-      const key = describeSelection(trial.calls);
+      const key = describeSelection(calls);
       confusions.set(key, (confusions.get(key) ?? 0) + 1);
       continue;
     }
@@ -82,7 +98,7 @@ export function scoreScenario(
     }
 
     argsChecked++;
-    if (matchesSubset(declaredArgs, trial.calls[0]!.args, normalise)) {
+    if (matchesSubset(declaredArgs, calls[0]!.args, normalise)) {
       argsPassed++;
       fullyCorrect++;
     }
@@ -135,7 +151,13 @@ export function scoreRun(input: ScoreRunInput, options: ScoreOptions = {}): {
     ),
   );
 
-  return { scenarios, orphans: findOrphans(input.surface, input.trialsByScenario) };
+  // Projection is applied inside each consumer, exactly once. Projecting the
+  // map here instead and *also* passing the option down would apply it twice
+  // and quietly depend on it being idempotent.
+  return {
+    scenarios,
+    orphans: findOrphans(input.surface, input.trialsByScenario, options.project),
+  };
 }
 
 /**
@@ -145,16 +167,19 @@ export function scoreRun(input: ScoreRunInput, options: ScoreOptions = {}): {
  * is only as good as the scenario coverage, so the report says so.
  *
  * On the skills side this is the metric behind the reported "45% of installed
- * skills never trigger" — same computation, larger corpus.
+ * skills never trigger" — same computation, larger corpus. Which is exactly
+ * why this projects too: raw skills calls all name the dispatch tool, so
+ * without it every skill in the surface reads as never selected.
  */
 export function findOrphans(
   surface: Surface,
   trialsByScenario: Map<string, TrialResult[]>,
+  project: Projection = identityProjection,
 ): string[] {
   const selected = new Set<string>();
   for (const trials of trialsByScenario.values()) {
     for (const trial of trials) {
-      for (const call of trial.calls) selected.add(call.name);
+      for (const call of project(trial.calls)) selected.add(call.name);
     }
   }
   return surface.items.map((item) => item.name).filter((name) => !selected.has(name));

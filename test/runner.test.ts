@@ -86,6 +86,26 @@ describe('runEval', () => {
     assert.equal(report.model, 'spy');
   });
 
+  it('scores through the presentation\'s projection', async () => {
+    // The scorer accepting a projection is not the same as the runner supplying
+    // one. Here every call is renamed to something no scenario expects, so a
+    // runner that ignored `presentation.project` would score these as passes.
+    const config = await loadConfig(fixture('pickrate.yaml'));
+    const surface = await loadManifestFromFile(fixture('git-server.json'));
+
+    const report = await runEval(config, surface, new SpyProvider(), {
+      presentation: {
+        tools: [],
+        project: (calls) => calls.map((call) => ({ ...call, name: `via:${call.name}` })),
+      },
+    });
+
+    const selection = report.scenarios.find((s) => s.id === 'create-branch')!;
+    assert.equal(selection.score, 0);
+    assert.deepEqual(selection.confusions, [{ tool: 'via:create_branch', count: 5 }]);
+    assert.deepEqual(report.orphans, ['create_branch', 'delete_branch', 'list_branches']);
+  });
+
   it('reports progress for every trial', async () => {
     const config = await loadConfig(fixture('pickrate.yaml'));
     const surface = await loadManifestFromFile(fixture('git-server.json'));

@@ -50,6 +50,14 @@ export interface Presentation {
    * For MCP these are the same thing, so this is the identity. For skills they
    * are not: the model calls one dispatch tool and names a skill in its
    * arguments, and it is the named skill that has to reach the scorer.
+   *
+   * Pure and total: same calls in, same selections out, no I/O. And it must
+   * **never drop a call** — a call it cannot map passes through under a name
+   * that is visibly wrong rather than vanishing. Dropping one turns a bad
+   * selection into an empty call list, which the scorer reads as restraint: a
+   * silent false pass in the metric that is already the most neglected.
+   *
+   * The projected arguments are what `expect.args` is matched against.
    */
   project(calls: ToolCall[]): ToolCall[];
 }
