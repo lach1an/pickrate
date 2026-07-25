@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { before, describe, it } from 'node:test';
 import { loadConfig } from '../src/config/index.js';
-import { loadManifestFromFile } from '../src/connector/index.js';
+import { loadManifestFromFile, mcpAdapter } from '../src/adapters/mcp/index.js';
 import { ReplayProvider } from '../src/provider/replay.js';
 import { findOrphans, matchesSubset, scoreRun, totalUsage } from '../src/scorer/index.js';
 import type { EvalConfig, ScenarioScore, Surface, TrialResult } from '../src/types.js';
@@ -20,12 +20,13 @@ before(async () => {
   config = await loadConfig(fixture('pickrate.yaml'));
   surface = await loadManifestFromFile(fixture('git-server.json'));
   const provider = await ReplayProvider.fromFile(fixture('trials/git-server.json'));
+  const presentation = mcpAdapter.present(surface);
 
   trialsByScenario = new Map();
   for (const scenario of config.scenarios) {
     const trials: TrialResult[] = [];
     for (let i = 0; i < (scenario.trials ?? config.defaults.trials); i++) {
-      trials.push(await provider.runTrial(surface, scenario));
+      trials.push(await provider.runTrial(presentation, scenario));
     }
     trialsByScenario.set(scenario.id, trials);
   }

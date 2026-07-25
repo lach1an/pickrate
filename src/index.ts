@@ -12,7 +12,21 @@ export {
   countSkillBodyTokens,
 } from './analyser/index.js';
 export { isTool, isSkill, toolsOf, skillsOf, itemNoun } from './surface.js';
-export { loadManifest, loadManifestFromFile, parseTarget, type ConnectOptions, type Target } from './connector/index.js';
+export {
+  loadSurface,
+  adapterFor,
+  parseTarget,
+  splitCommand,
+  resolveSkillRoot,
+  identityPresentation,
+  type Adapter,
+  type LoadOptions,
+  type Presentation,
+  type PresentOptions,
+  type ToolDeclaration,
+  type Target,
+} from './adapters/index.js';
+export { mcpAdapter, loadManifest, loadManifestFromFile } from './adapters/mcp/index.js';
 export { loadConfig, parseConfig, ConfigError, DEFAULTS, trialsFor, thresholdFor } from './config/index.js';
 export {
   costOf,

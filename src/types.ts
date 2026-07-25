@@ -1,7 +1,7 @@
 /**
  * Internal domain model.
  *
- * Nothing outside `src/connector/` may import from `@modelcontextprotocol/sdk`.
+ * Nothing outside `src/adapters/mcp/` may import from `@modelcontextprotocol/sdk`.
  * The SDK is expected to churn hard through the `2026-07-28` transition; these
  * types are the seam that keeps that churn out of the analyser, runner, scorer
  * and reporter.

@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import type { Scenario, Surface, TrialResult } from '../types.js';
+import type { Presentation } from '../adapters/contract.js';
+import type { Scenario, TrialResult } from '../types.js';
 import type { Provider } from './index.js';
 
 /**
@@ -40,7 +41,7 @@ export class ReplayProvider implements Provider {
     );
   }
 
-  async runTrial(_surface: Surface, scenario: Scenario): Promise<TrialResult> {
+  async runTrial(_presentation: Presentation, scenario: Scenario): Promise<TrialResult> {
     const recorded = this.byScenario.get(scenario.id);
     if (!recorded || recorded.length === 0) {
       throw new Error(`No recorded trials for scenario "${scenario.id}".`);

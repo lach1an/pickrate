@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { loadConfig } from '../src/config/index.js';
-import { loadManifestFromFile } from '../src/connector/index.js';
+import { loadManifestFromFile } from '../src/adapters/mcp/index.js';
 import type { Provider } from '../src/provider/index.js';
 import { mapPool, runEval, totalTrials } from '../src/runner/index.js';
-import type { Scenario, Surface, TrialResult } from '../src/types.js';
+import type { Presentation } from '../src/adapters/index.js';
+import type { Scenario, TrialResult } from '../src/types.js';
 
 const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
 
@@ -15,7 +16,7 @@ class SpyProvider implements Provider {
   readonly concurrencyAtStart: number[] = [];
   private inFlight = 0;
 
-  async runTrial(_surface: Surface, scenario: Scenario): Promise<TrialResult> {
+  async runTrial(_presentation: Presentation, scenario: Scenario): Promise<TrialResult> {
     this.inFlight++;
     this.concurrencyAtStart.push(this.inFlight);
     await new Promise((resolve) => setTimeout(resolve, 2));

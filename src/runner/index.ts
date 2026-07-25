@@ -1,3 +1,5 @@
+import { adapterFor } from '../adapters/index.js';
+import type { Presentation } from '../adapters/contract.js';
 import { trialsFor } from '../config/index.js';
 import { costOf } from '../provider/pricing.js';
 import { scoreRun, totalUsage, type ScoreOptions } from '../scorer/index.js';
@@ -17,6 +19,11 @@ export interface RunProgress {
 export interface RunOptions {
   onProgress?: (progress: RunProgress) => void;
   score?: ScoreOptions;
+  /**
+   * Override how the surface is put to the model. Defaults to whatever its
+   * own adapter does, which is what a normal run wants.
+   */
+  presentation?: Presentation;
 }
 
 /**
@@ -41,6 +48,11 @@ export async function runEval(
   const startedAt = new Date();
   const started = performance.now();
 
+  // Presented once, not per trial. Presentation is pure and cheap, but doing
+  // it once makes the byte-stability the cache depends on structural rather
+  // than something every adapter has to remember.
+  const presentation = options.presentation ?? adapterFor(surface.kind).present(surface);
+
   const jobs: Array<{ scenario: Scenario; index: number }> = [];
   for (const scenario of config.scenarios) {
     const trials = trialsFor(scenario, config.defaults);
@@ -59,13 +71,13 @@ export async function runEval(
   // rest go out in parallel. Skipping this makes a run roughly 10× dearer.
   const first = jobs[0];
   if (first) {
-    const trial = await provider.runTrial(surface, first.scenario);
+    const trial = await provider.runTrial(presentation,first.scenario);
     results.push(trial);
     report(first.scenario, trial);
   }
 
   const rest = await mapPool(jobs.slice(1), config.defaults.concurrency, async (job) => {
-    const trial = await provider.runTrial(surface, job.scenario);
+    const trial = await provider.runTrial(presentation,job.scenario);
     report(job.scenario, trial);
     return trial;
   });

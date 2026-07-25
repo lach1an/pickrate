@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import pc from 'picocolors';
-import { toolsOf } from '../surface.js';
-import type { Scenario, Surface, ToolCall, ToolDef, TrialResult, TrialUsage } from '../types.js';
+import type { Presentation, ToolDeclaration } from '../adapters/contract.js';
+import type { Scenario, ToolCall, TrialResult, TrialUsage } from '../types.js';
 import type { CostEstimate, Provider } from './index.js';
 import { CACHE_READ_MULTIPLIER, PRICES } from './pricing.js';
 
@@ -48,9 +48,11 @@ export class AnthropicProvider implements Provider {
     });
   }
 
-  async runTrial(surface: Surface, scenario: Scenario): Promise<TrialResult> {
+  async runTrial(presentation: Presentation, scenario: Scenario): Promise<TrialResult> {
     try {
-      const response = await this.client.messages.create(this.request(surface, scenario.prompt));
+      const response = await this.client.messages.create(
+        this.request(presentation, scenario.prompt),
+      );
 
       // Check before reading content: a refused trial has no usable content,
       // and treating it as "called nothing" would score as passing restraint.
@@ -87,7 +89,7 @@ export class AnthropicProvider implements Provider {
 
   /** Free preflight, so nobody discovers the cost after paying it. */
   async estimate(
-    surface: Surface,
+    presentation: Presentation,
     scenarios: Scenario[],
     totalTrials: number,
   ): Promise<CostEstimate> {
@@ -96,7 +98,7 @@ export class AnthropicProvider implements Provider {
       scenarios[0]!,
     );
     const counted = await this.client.messages
-      .countTokens({ model: this.model, ...promptShape(surface, longest.prompt) })
+      .countTokens({ model: this.model, ...promptShape(presentation, longest.prompt) })
       .catch((error: unknown) => {
         throwIfCredentialProblem(error);
         throw error;
@@ -116,7 +118,10 @@ export class AnthropicProvider implements Provider {
    * The request shape is the measurement instrument — every choice here is
    * load-bearing, so they are all justified in place.
    */
-  private request(surface: Surface, prompt: string): Anthropic.MessageCreateParamsNonStreaming {
+  private request(
+    presentation: Presentation,
+    prompt: string,
+  ): Anthropic.MessageCreateParamsNonStreaming {
     return {
       model: this.model,
       max_tokens: 1024,
@@ -129,7 +134,7 @@ export class AnthropicProvider implements Provider {
       // emitting a tool_use block — which this harness would silently score as
       // "selected nothing". That is a systematic error in the primary metric.
       output_config: { effort: 'low' },
-      ...promptShape(surface, prompt),
+      ...promptShape(presentation, prompt),
     };
   }
 }
@@ -141,7 +146,7 @@ export class AnthropicProvider implements Provider {
  * prices the request that actually runs, rather than an approximation of it.
  */
 function promptShape(
-  surface: Surface,
+  presentation: Presentation,
   prompt: string,
 ): {
   tools: Anthropic.Tool[];
@@ -149,11 +154,21 @@ function promptShape(
   messages: Anthropic.MessageParam[];
 } {
   return {
-    tools: toolsOf(surface).map(toAnthropicTool),
+    tools: presentation.tools.map(toAnthropicTool),
     // The breakpoint goes on system, which renders after tools, so it caches
-    // the manifest and the system prompt together. Without it, a 34k-token
+    // the surface and the system prompt together. Without it, a 34k-token
     // manifest is re-billed at full price on every single trial.
-    system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+    //
+    // The adapter's suffix goes inside that same cached block — which is why
+    // it has to be byte-stable across trials. A skills listing that iterated a
+    // Set, or interpolated a path, would silently make every trial a cache miss.
+    system: [
+      {
+        type: 'text',
+        text: SYSTEM_PROMPT + (presentation.systemSuffix ?? ''),
+        cache_control: { type: 'ephemeral' },
+      },
+    ],
     messages: [{ role: 'user', content: prompt }],
   };
 }
@@ -181,14 +196,14 @@ function throwIfCredentialProblem(error: unknown): void {
 }
 
 /**
- * MCP tool → Anthropic tool.
+ * Neutral declaration → Anthropic tool.
  *
  * Note the absence of `strict: true`: it rejects JSON Schema constructs that
  * are common in real manifests, and it constrains generation. We want to
  * observe what the model does with the server's schema as written, not with a
  * version the API was willing to enforce.
  */
-function toAnthropicTool(tool: ToolDef): Anthropic.Tool {
+function toAnthropicTool(tool: ToolDeclaration): Anthropic.Tool {
   return {
     name: tool.name,
     ...(tool.description !== undefined ? { description: tool.description } : {}),

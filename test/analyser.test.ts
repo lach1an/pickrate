@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { analyse } from '../src/analyser/index.js';
-import { loadManifestFromFile } from '../src/connector/index.js';
+import { loadManifestFromFile } from '../src/adapters/mcp/index.js';
 import type { Analysis } from '../src/types.js';
 
 const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/${name}.json`, import.meta.url));

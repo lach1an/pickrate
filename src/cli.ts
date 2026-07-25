@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util';
 import pc from 'picocolors';
 import { analyse } from './analyser/index.js';
 import { loadConfig } from './config/index.js';
-import { loadManifest, type ConnectOptions } from './connector/index.js';
+import { adapterFor, loadSurface, type LoadOptions, type Presentation } from './adapters/index.js';
 import { AnthropicProvider, CredentialError } from './provider/anthropic.js';
 import { formatUsd } from './provider/pricing.js';
 import { ReplayProvider } from './provider/replay.js';
@@ -13,7 +13,7 @@ import { formatEvalReport } from './report/eval.js';
 import { formatAnalysisJson, formatEvalReportJson } from './report/json.js';
 import { formatAnalysis } from './report/table.js';
 import { runEval, totalTrials } from './runner/index.js';
-import type { EvalConfig, Severity } from './types.js';
+import type { EvalConfig, Severity, SurfaceKind } from './types.js';
 
 const VERSION = '0.0.0';
 
@@ -25,9 +25,10 @@ ${pc.bold('Usage')}
   pickrate run <config.yaml> [options]    tool-selection eval — needs a model
 
 ${pc.bold('Targets')}
-  "node ./build/index.js"        stdio server (quote the whole command)
-  https://api.example.com/mcp    streamable HTTP server
+  "node ./build/index.js"        stdio MCP server (quote the whole command)
+  https://api.example.com/mcp    streamable HTTP MCP server
   ./manifest.json                a captured tools/list response
+  ./.claude/skills               a directory of SKILL.md files
 
 ${pc.bold('inspect options')}
   --json                  machine-readable output
@@ -44,6 +45,7 @@ ${pc.bold('run options')}
   --replay <file>         replay recorded trials instead of calling a model
 
 ${pc.bold('shared options')}
+  --adapter <id>          force mcp or skills, skipping target detection
   --header <k=v>          extra HTTP header (repeatable)
   --env <k=v>             extra env var for stdio servers (repeatable)
   --timeout <ms>          connection budget (default: 30000)
@@ -68,6 +70,7 @@ async function main(argv: string[]): Promise<number> {
       model: { type: 'string' },
       trials: { type: 'string' },
       replay: { type: 'string' },
+      adapter: { type: 'string' },
       header: { type: 'string', multiple: true },
       env: { type: 'string', multiple: true },
       timeout: { type: 'string' },
@@ -88,10 +91,11 @@ async function main(argv: string[]): Promise<number> {
     return command === undefined && !values.help ? 2 : 0;
   }
 
-  const connectOptions: ConnectOptions = {
+  const loadOptions: LoadOptions & { adapter?: SurfaceKind } = {
     ...(values.header ? { headers: parsePairs(values.header, '--header') } : {}),
     ...(values.env ? { env: parsePairs(values.env, '--env') } : {}),
     ...(values.timeout ? { timeoutMs: Number(values.timeout) } : {}),
+    ...(values.adapter ? { adapter: parseAdapter(values.adapter) } : {}),
   };
 
   if (command === 'inspect') {
@@ -99,7 +103,7 @@ async function main(argv: string[]): Promise<number> {
       process.stderr.write(`inspect needs a target.\n${USAGE}\n`);
       return 2;
     }
-    return inspect(target, connectOptions, values);
+    return inspect(target, loadOptions, values);
   }
 
   if (command === 'run') {
@@ -107,7 +111,7 @@ async function main(argv: string[]): Promise<number> {
       process.stderr.write(`run needs a config file.\n${USAGE}\n`);
       return 2;
     }
-    return run(target, connectOptions, values);
+    return run(target, loadOptions, values);
   }
 
   process.stderr.write(`Unknown command: ${command}\n${USAGE}\n`);
@@ -118,11 +122,11 @@ async function main(argv: string[]): Promise<number> {
 
 type Values = Record<string, unknown>;
 
-async function inspect(target: string, connectOptions: ConnectOptions, values: Values): Promise<number> {
+async function inspect(target: string, loadOptions: LoadOptions, values: Values): Promise<number> {
   const failOn = parseFailOn(values['fail-on'] as string | undefined);
-  const manifest = await loadManifest(target, connectOptions);
+  const surface = await loadSurface(target, loadOptions);
   const disable = values.disable as string | undefined;
-  const analysis = analyse(manifest, {
+  const analysis = analyse(surface, {
     ...(disable ? { disable: disable.split(',').map((id) => id.trim()) } : {}),
   });
 
@@ -135,18 +139,22 @@ async function inspect(target: string, connectOptions: ConnectOptions, values: V
   return breached ? 1 : 0;
 }
 
-async function run(configPath: string, connectOptions: ConnectOptions, values: Values): Promise<number> {
+async function run(configPath: string, loadOptions: LoadOptions, values: Values): Promise<number> {
   const config = applyOverrides(await loadConfig(configPath), values);
   const json = values.json === true;
 
-  const manifest = await loadManifest(config.target, connectOptions);
+  const surface = await loadSurface(config.target, loadOptions);
   const replay = values.replay as string | undefined;
   const provider: Provider = replay
     ? await ReplayProvider.fromFile(replay)
     : new AnthropicProvider({ model: config.defaults.model });
 
+  // The same presentation the runner will use, so the estimate prices the
+  // request that actually runs rather than an approximation of it.
+  const presentation = adapterFor(surface.kind).present(surface);
+
   const trials = totalTrials(config);
-  const estimate = await preflight(provider, config, manifest, trials, json);
+  const estimate = await preflight(provider, config, presentation, trials, json);
 
   if (values['dry-run'] === true) {
     if (!json) process.stderr.write(pc.dim('  --dry-run: nothing was spent.\n\n'));
@@ -161,7 +169,8 @@ async function run(configPath: string, connectOptions: ConnectOptions, values: V
   }
 
   const onProgress = json ? undefined : renderProgress();
-  const report = await runEval(config, manifest, provider, {
+  const report = await runEval(config, surface, provider, {
+    presentation,
     ...(onProgress ? { onProgress } : {}),
   });
   await provider.close?.();
@@ -178,7 +187,7 @@ async function run(configPath: string, connectOptions: ConnectOptions, values: V
 async function preflight(
   provider: Provider,
   config: EvalConfig,
-  manifest: Parameters<Provider['runTrial']>[0],
+  presentation: Presentation,
   trials: number,
   json: boolean,
 ): Promise<CostEstimate | undefined> {
@@ -186,7 +195,7 @@ async function preflight(
 
   let estimate: CostEstimate;
   try {
-    estimate = await provider.estimate(manifest, config.scenarios, trials);
+    estimate = await provider.estimate(presentation, config.scenarios, trials);
   } catch (error) {
     // Missing credentials are the one estimate failure worth stopping for:
     // every trial would fail the same way a moment later.
@@ -264,6 +273,11 @@ function applyOverrides(config: EvalConfig, values: Values): EvalConfig {
         ? config.scenarios
         : config.scenarios.map(({ trials: _ignored, ...rest }) => rest),
   };
+}
+
+function parseAdapter(value: string): SurfaceKind {
+  if (value === 'mcp' || value === 'skills') return value;
+  throw new Error(`--adapter must be one of: mcp, skills (got "${value}")`);
 }
 
 function parseFailOn(value: string | undefined): Severity | null {

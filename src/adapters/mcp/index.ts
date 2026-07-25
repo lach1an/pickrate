@@ -3,21 +3,32 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import type { JsonSchema, Surface, SurfaceSource, ToolDef } from '../types.js';
-import { parseTarget, type Target } from './target.js';
-
-export { parseTarget, splitCommand, type Target } from './target.js';
+import { toolsOf } from '../../surface.js';
+import type { JsonSchema, Surface, SurfaceSource, ToolDef } from '../../types.js';
+import { identityPresentation, type Adapter, type LoadOptions, type Presentation } from '../contract.js';
+import { parseTarget, type Target } from '../target.js';
 
 const CLIENT_INFO = { name: 'pickrate', version: '0.0.0' } as const;
 
-export interface ConnectOptions {
-  /** Extra headers for HTTP targets (auth, etc). */
-  headers?: Record<string, string>;
-  /** Extra env for stdio targets, merged over the inherited defaults. */
-  env?: Record<string, string>;
-  /** Overall budget for connect + list, in ms. */
-  timeoutMs?: number;
-}
+/**
+ * MCP: the adapter where selecting and calling are the same act.
+ *
+ * A tool the model picks is a tool it names, so `present` hands the tools
+ * straight through and `project` is the identity. The seam earns its keep on
+ * the skills side, where those two come apart.
+ */
+export const mcpAdapter: Adapter = {
+  id: 'mcp',
+  load: (target, options) => loadManifest(target, options),
+  present: (surface): Presentation =>
+    identityPresentation(
+      toolsOf(surface).map((tool) => ({
+        name: tool.name,
+        ...(tool.description !== undefined ? { description: tool.description } : {}),
+        inputSchema: tool.inputSchema,
+      })),
+    ),
+};
 
 /**
  * The one place that knows MCP exists.
@@ -32,9 +43,10 @@ export interface ConnectOptions {
  */
 export async function loadManifest(
   target: string | Target,
-  options: ConnectOptions = {},
+  options: LoadOptions = {},
 ): Promise<Surface> {
-  const t = typeof target === 'string' ? parseTarget(target) : target;
+  const t = typeof target === 'string' ? parseTarget(target, { adapter: 'mcp' }) : target;
+  if (t.adapter !== 'mcp') throw new Error(`Not an MCP target: ${t.display}`);
   if (t.kind === 'file') return loadManifestFromFile(t.path);
 
   const transport = createTransport(t, options);
@@ -92,7 +104,10 @@ export async function loadManifestFromFile(path: string): Promise<Surface> {
   };
 }
 
-function createTransport(t: Exclude<Target, { kind: 'file' }>, options: ConnectOptions): Transport {
+function createTransport(
+  t: Extract<Target, { adapter: 'mcp'; kind: 'http' | 'stdio' }>,
+  options: LoadOptions,
+): Transport {
   if (t.kind === 'http') {
     // The SDK declares `sessionId: string` while assigning `undefined` to it,
     // which trips `exactOptionalPropertyTypes`. One cast, contained here, is

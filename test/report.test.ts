@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { loadConfig } from '../src/config/index.js';
-import { loadManifestFromFile } from '../src/connector/index.js';
+import { loadManifestFromFile } from '../src/adapters/mcp/index.js';
 import { ReplayProvider } from '../src/provider/replay.js';
 import { formatEvalReport } from '../src/report/eval.js';
 import { formatEvalReportJson, SCHEMA_VERSION } from '../src/report/json.js';

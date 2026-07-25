@@ -6,14 +6,17 @@ Full spec: [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md), plus [`plans/skil
 
 **M1 (analyser) and M2 (runner + scorer) — complete.** `pickrate inspect <target>` reports token cost and lint findings; `pickrate run <config.yaml>` runs scenarios × trials against a model and reports pass rates, confusion pairs, orphans and flakiness.
 
-**Adapter split — step 1 of 6 done.** The core is generic over a `Surface` (`SurfaceItem = ToolDef | SkillDef`), but MCP is still the only adapter: nothing constructs a `SkillDef` yet. Next is step 2, `src/connector/` → `src/adapters/mcp/` behind an `Adapter` interface. M3 (mutator) and M4 (CI) are not started — and the mutator must land *after* the adapter work, or its operators get written twice.
+**Adapter split — steps 1–2 of 6 done.** The core is generic over a `Surface` (`SurfaceItem = ToolDef | SkillDef`) and runs through an `Adapter` (`load` + `present`), with providers taking a `Presentation` rather than a `Surface`. MCP is still the only adapter: `parseTarget` already routes a skills directory, and `adapterFor('skills')` throws until step 4. Next is step 3, the scorer's `project` hook. M3 (mutator) and M4 (CI) are not started — and the mutator must land *after* the adapter work, or its operators get written twice.
 
 ## Invariants
 
 These are load-bearing, not preferences:
 
 1. **`inspect` never makes a model call and never requires an API key.** The zero-credential first run is the distribution strategy, not a nicety. Analyser rules are pure: `Surface` in, `Finding[]` out.
-2. **Only `src/connector/` imports `@modelcontextprotocol/sdk`** (becoming `src/adapters/mcp/` at step 2)**; only `src/provider/` imports `@anthropic-ai/sdk`.** Everything else consumes `Surface` and `TrialResult` from `src/types.ts`. The MCP spec finalises `2026-07-28` (stateless, no `initialize`, no `Mcp-Session-Id`, new `Mcp-Method`/`Mcp-Name` routing headers) and the SDKs will churn; the model is a swappable part of the measurement. Contain both.
+2. **Only `src/adapters/mcp/` imports `@modelcontextprotocol/sdk`; only `src/provider/` imports `@anthropic-ai/sdk`.** Everything else consumes `Surface` and `TrialResult` from `src/types.ts`. The MCP spec finalises `2026-07-28` (stateless, no `initialize`, no `Mcp-Session-Id`, new `Mcp-Method`/`Mcp-Name` routing headers) and the SDKs will churn; the model is a swappable part of the measurement. Contain both.
+   - Adapters emit provider-neutral `ToolDeclaration`s and system text via `present()`; the provider converts. An adapter that reaches for an Anthropic type has broken the seam in both directions.
+   - `src/adapters/contract.ts` holds the interfaces, `index.ts` holds the registry. They are separate files because the registry imports every adapter and every adapter needs the interfaces — one module is a cycle that typechecks and then throws at runtime.
+   - A `Presentation.systemSuffix` sits inside the cached prefix and **must** be byte-stable across trials. Deterministic iteration only: no `Set` ordering, no absolute paths, no timestamps. The only symptom of getting this wrong is a bill ~10× the estimate.
 3. **Every eval assertion is a pass rate over N trials, never a boolean.** Tool selection is non-deterministic; a binary assertion passes Tuesday and fails Wednesday.
 4. **Score selection, arguments and restraint separately.** Different bugs, different fixes. Restraint (correctly calling *nothing*) is the most neglected.
 5. **Diagnostics outrank the headline number in the report.** Goodhart: the moment someone optimises the score they write descriptions that game it. Confusion pairs, orphan tools and token cost go above any total.
@@ -37,7 +40,7 @@ Changing any of these changes what the numbers mean — don't adjust them casual
 
 Node ≥20.19, TypeScript (strict, `exactOptionalPropertyTypes`), ESM, `tsc` to `dist/`. Tests are `node:test` via `tsx`, offline, no snapshots. Arg parsing is `node:util` `parseArgs` — no CLI framework.
 
-Current SDK (`1.29.0`) still negotiates protocol `2025-11-25` and still does the initialize handshake. No `2026-07-28` SDK has shipped yet. When one does, the change should land in `src/connector/index.ts` and nowhere else.
+Current SDK (`1.29.0`) still negotiates protocol `2025-11-25` and still does the initialize handshake. No `2026-07-28` SDK has shipped yet. When one does, the change should land in `src/adapters/mcp/index.ts` and nowhere else.
 
 ## Fixtures
 
