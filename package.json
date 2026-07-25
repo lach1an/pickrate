@@ -16,7 +16,7 @@
     "access": "public"
   },
   "bin": {
-    "pickrate": "./dist/cli.js"
+    "pickrate": "dist/cli.js"
   },
   "main": "./dist/index.js",
   "exports": {
