@@ -1,9 +1,11 @@
 # Multi-provider — implementation plan
 
-**Status:** draft, not agreed
+**Status:** draft, not agreed — **revised 25 July 2026** against [`multi-provider-research-findings.md`](multi-provider-research-findings.md)
 **Date:** 25 July 2026
 **Implements:** [`mcp-eval-spec.md`](mcp-eval-spec.md) §7 "Later, if it has legs" — multi-model comparison, promoted ahead of M5
 **Follows:** M4 (CI), complete
+
+> **Read the findings document alongside this one.** It resolved all four of this plan's original open questions and surfaced three things the plan did not account for, one of which is premise-level. This file has been rewritten to stand alone and correct; the findings doc carries the evidence and the sourcing.
 
 ---
 
@@ -11,163 +13,235 @@
 
 The spec files multi-model comparison after M5, as a nice-to-have. That ordering was right when M5 was a private validation exercise. It stopped being right when M5 became **the** distribution event.
 
-M5 publishes a ranking of 20–30 well-known public servers. pickrate's entire pitch is *how much should you trust this report*. A ranking measured solely on `claude-haiku-4-5`, by a harness that only speaks one vendor's API, hands every badly-ranked server the one rebuttal that lands:
+M5 publishes a ranking of 20–30 well-known public servers. pickrate's entire pitch is *how much should you trust this report*. A ranking measured solely on one vendor's model, by a harness that speaks one vendor's API, hands every badly-ranked server the one rebuttal that lands:
 
 > You measured a model, not a surface — and you picked the model.
 
-That is not a cheap shot, it is correct. Selection behaviour differs materially across models, so a single-provider harness measures a model×surface interaction and reports it as a property of the surface. The leaderboard would be publishing a confound as a finding, in the project whose differentiator is refusing to do exactly that.
+That is not a cheap shot, it is correct. Selection behaviour differs materially across models, so a single-provider harness measures a model×surface interaction and reports it as a property of the surface. The leaderboard would publish a confound as a finding, in the project whose differentiator is refusing to do exactly that.
 
 **But this does not replace M5, and it does not come first.** The long pole in M5 is the *corpus* — hand-written scenario files for real servers, with the near-misses that make them worth anything. That work is provider-independent, it is the expensive human artifact, and once it exists, re-running it against a second model is nearly free. Building a second provider with nothing to point it at yields two providers and no findings.
 
-So the sequence is: **corpus first, this before publishing, and cross-model disagreement as the headline instead of a ranking.** "This server is picked 94% by one model and 61% by another" is a better post than any ordering, it is a *delta* rather than an absolute — the same logic that drives the whole product — and it leaves no vendor to be accused of favouring.
+So: **corpus first, this before publishing, and cross-model disagreement as the headline instead of a ranking.**
 
 ---
 
-## 1. What the seam already gets right, and the five places it leaks
+## 1. What the seam gets right, and the six places it leaks
 
-Invariant 2 says only `src/provider/` imports a model SDK. That holds, and it bought a lot: adapters emit provider-neutral `ToolDeclaration`s and system text via `present()`, the scorer consumes `TrialResult` and nothing else, and the whole pipeline below the provider is already testable with no key.
+Invariant 2 holds: only `src/provider/` imports a model SDK. It bought a lot — adapters emit neutral `ToolDeclaration`s, the scorer consumes `TrialResult` and nothing else, the whole pipeline below the provider is testable with no key.
 
-The harder discipline is also already in place, mostly by accident of other work:
+The harder discipline is also already in place: `EvalReport.model` is reported prominently, `diffReports` refuses a baseline recorded against a different model, and `ReplayProvider` refuses trials recorded under a foreign presentation. **The codebase already treats "different model" as "different measurement".** That is the expensive half, and everything below is an extension of it rather than a fight with it.
 
-- `EvalReport.model` is reported prominently — the model under test is part of the result (spec §8.2).
-- `diffReports` **refuses** a baseline recorded against a different model (M4 §1.3).
-- `ReplayProvider` refuses trials recorded under a foreign presentation.
-
-The codebase already treats "different model" as "different measurement". That is the expensive half.
-
-What leaks is narrower than "the provider abstraction is wrong", and all five are worth fixing before a second implementation exists rather than after:
-
-### 1.1 `TrialUsage` is Anthropic-shaped, and it lives in the frozen schema
-
-`src/types.ts`:
+### 1.1 `TrialUsage` is one vendor's cache model, and it is in the frozen schema
 
 ```ts
 export interface TrialUsage {
   inputTokens: number;
   outputTokens: number;
-  cacheCreationInputTokens: number;   // Anthropic's explicit cache write
+  cacheCreationInputTokens: number;   // an explicit cache *write*
   cacheReadInputTokens: number;
 }
 ```
 
-A provider with automatic prefix caching has no *write* to report — there is no breakpoint, nothing is deliberately created, and the API surfaces only a cached-read count. Reporting `cacheCreationInputTokens: 0` says "it cost nothing to populate the cache" when the truth is "this provider has no such concept". That is precisely the distinction `TokenReport.deferred` exists to preserve elsewhere, where the rule is already written down: *"your bodies cost nothing" and "we did not measure them" are different statements.*
+Some models have no cache write to report; some do but populate automatically; one current tier populates automatically **and** bills the write. Reporting `0` where the concept does not exist says "populating the cache was free" when it means "there is no such thing here" — the distinction `TokenReport.deferred` already exists to preserve.
 
-This is the only leak that reaches the JSON schema, which M4 froze and shipped.
+The only leak that reaches the JSON schema M4 froze and shipped.
 
 ### 1.2 The runner's warm-up encodes one provider's cache semantics
 
-`src/runner/index.ts:78` runs trial 1 alone before fanning out, because an Anthropic cache entry only becomes readable once the first response has returned. Under automatic prefix caching that serialisation buys nothing — and under a provider with no caching at all it is pure latency for no saving. The comment there is honest about *why*, which is what makes it visible now; it is simply in the wrong module.
+`src/runner/index.ts:78` runs trial 1 alone before fanning out, because an explicit-breakpoint cache entry only becomes readable once the first response returns.
 
-### 1.3 Pricing assumes a single cache-read multiplier
+The findings sharpened this: under automatic prefix caching a first request still populates, **but there is a minimum prefix size (1024 tokens) below which nothing caches at all.** So the question the runner needs answered is not "does this provider cache" but **"will *this request* cache"** — which it can only know from the estimate. Warm-then-fan-out becomes conditional on population style *and* estimated prefix size, and a small manifest correctly skips the warm-up on both providers.
 
-`CACHE_READ_MULTIPLIER` is one global constant in `src/provider/pricing.ts`, applied in `estimateUsd`. Cached-input discounts differ by vendor and sometimes by model tier. One constant across two providers produces an estimate that is confidently wrong for one of them.
+### 1.3 Pricing is unparameterised in the axis that actually varies
 
-### 1.4 The preflight assumes a free, authoritative token count
+`CACHE_READ_MULTIPLIER` is one global constant. The findings show read multipliers happen to agree at 0.1× across every current tier, so this is **not urgent** — but that is luck, not design.
 
-`AnthropicProvider.estimate` calls `messages.countTokens` — a free endpoint that returns the real number for the real request. Not every provider has one. The fallback is a local tokeniser (`gpt-tokenizer` is already a dependency, used by the analyser), which makes the estimate an *approximation* rather than a measurement. That is acceptable, but the preflight copy currently reads as authoritative and would need to stop.
+The unparameterised axis that does bite is the **write** multiplier, which the original plan did not mention: one provider bills writes at 1.25×, another bills them at zero, and a third tier of the *same* provider recently started billing them at 1.25×. Two further traps, both in §2.4 of the findings and both real:
+
+- **The long-context meter.** Above 272K input tokens, a request bills at 2× input and 1.5× output *for the whole request*. pickrate's entire thesis is oversized manifests, and `inject-decoys` deliberately makes them bigger. **A large manifest plus decoys is precisely the shape that crosses this line, so the preflight would under-report by ~2× at the moment it matters most.**
+- A regional-processing uplift of 10% on eligible recent models.
+
+### 1.4 The preflight's problem is not the one the plan identified
+
+The original plan assumed a second provider would lack a free authoritative token count and need a local tokeniser. **Wrong** — there is an endpoint that accepts the same payload including tools and returns the exact count. That leak dissolves.
+
+It inverts into two worse things:
+
+**a) M1's headline metric is an approximation of unquantified error.** The counting endpoint's documentation names, as a specific limitation of local tokenisers, that *tools and schemas add tokens that are hard to count locally* — which is exactly what the analyser does offline with `gpt-tokenizer`, and manifest token cost is `inspect`'s headline, the number that runs with no API key. The copy already says "approximate" and names the encoding, which is why this is a calibration job rather than an emergency — but the size of the error is currently unknown, and it is likely a consistent *under*-count. See step 0.
+
+**b) The preflight can no longer bound spend.** Reasoning tokens bill as output, vary per trial, and on a model that treats effort as a ceiling rather than a floor they vary *unpredictably* — the same scenario may reason on one trial and not the next. `CostEstimate.estimatedUsd` becomes a lower bound rather than an estimate, and the cost confirmation is a load-bearing promise here ("nobody discovers the cost after paying it"). It has to say so rather than quietly understate. **The obvious mitigation — cap output tokens — collides head-on with §2.10, so it is not available.**
 
 ### 1.5 `CredentialError` names one vendor's environment variable
 
-The message hardcodes `ANTHROPIC_API_KEY` and `ant auth login`. Fine today, actively misleading the moment a second provider can fail the same way.
+Hardcodes `ANTHROPIC_API_KEY` and `ant auth login`. Fine today, actively misleading the moment two providers can fail the same way.
+
+### 1.6 A truncated response is scored as restraint — and this is live today
+
+Not from the findings; found while checking them against the code, and it is the most urgent item in this document.
+
+`src/provider/anthropic.ts:59` handles `stop_reason === 'refusal'` and nothing else. A response that hits `max_tokens` before emitting its `tool_use` block returns `calls: []`, and the scorer reads an empty call list as **correctly calling nothing**. On a restraint scenario that is a **false pass in the metric the project already identifies as the most neglected.**
+
+This is the same failure the codebase already documents for `thinking: {type: "disabled"}` — *"tool calls arrive as visible text rather than tool_use blocks, which this harness would silently score as 'selected nothing' — a systematic error in the primary metric."* Truncation is a second road to that same wrong answer, and it is currently unguarded. Nothing in `src/` or `test/` mentions `max_tokens` outside the request itself.
+
+Today it is unlikely: `max_tokens: 1024` with `effort: 'low'` leaves ample room. **A reasoning model makes it plausible**, because reasoning tokens consume that budget before any tool call is emitted. See §2.10.
 
 ---
 
-## 2. Decisions that need making before code
+## 2. Decisions
 
-### 2.1 The provider declares its caching; the runner asks
+### 2.1 Capabilities hang off the **model**, not the provider, and cache is two axes
+
+The original three-value `CacheStyle` enum assumed cache behaviour is a provider property. It is not — it varies by model *within* a provider, and no current provider sits cleanly in one value.
 
 ```ts
-export type CacheStyle = 'explicit-breakpoint' | 'automatic-prefix' | 'none';
+export interface CacheBehaviour {
+  population: 'explicit-breakpoint' | 'automatic-prefix' | 'none';
+  writesBilled: boolean;
+  writeMultiplier?: number;
+  readMultiplier: number;
+  minimumPrefixTokens?: number;
+}
 
-export interface ProviderCapabilities {
-  cache: CacheStyle;
-  /** Can it price a request before running it, authoritatively? */
-  authoritativeTokenCount: boolean;
+export interface ModelCapabilities {
+  cache: CacheBehaviour;
+  toolSearch: 'supported' | 'unsupported';
+  reasoning: 'none' | 'effort-scale';
 }
 ```
 
-`Provider` gains `readonly capabilities: ProviderCapabilities`. The runner keeps warm-then-fan-out **only** for `explicit-breakpoint`, and says so in one place instead of assuming it everywhere.
+So `Provider` exposes `capabilitiesFor(model): ModelCapabilities` rather than a `readonly capabilities`.
 
-The alternative — keep the warm-up unconditionally because it is harmless — is wrong in the direction that matters. It is not harmless: it serialises the first trial of every run, and on a provider that needs no warming it is a latency cost paid to protect a saving that does not exist. More to the point, an unexplained serialisation is exactly the kind of thing that gets deleted by someone who cannot see why it is there, on the provider where it *is* load-bearing.
+**Dropped:** `authoritativeTokenCount`. Both providers have one, so the flag has no false case, and a capability with no false case is a comment pretending to be code. Add it back when a provider without one exists.
 
-### 2.2 Usage becomes provider-neutral without a schema bump
+### 2.2 Usage becomes neutral without a schema bump — rationale corrected
 
-Make the two cache fields **optional**, omitted when the provider has no such concept, and keep the names:
+Make the cache fields **optional**, omitted where the concept does not exist:
 
 ```ts
 export interface TrialUsage {
   inputTokens: number;
   outputTokens: number;
-  /** Omitted entirely when the provider has no explicit cache write. */
+  /** Omitted when this *model* has no such concept — not merely zero. */
   cacheCreationInputTokens?: number;
   cacheReadInputTokens?: number;
 }
 ```
 
-No `SCHEMA_VERSION` bump, on the M3 precedent, which applies exactly: *a new command is an addition, and nothing pinned on 2 for `inspect`/`run` can break on a shape it has never seen.* A second provider's reports are likewise a shape no existing consumer has seen — every report in the wild today is Anthropic's and keeps all four keys, byte for byte.
+The design stands; the plan's reasoning for it was wrong. Absence is **model**-scoped, not provider-scoped — one provider's newer tier does report cache writes while its older ones do not.
 
-This matters more than it did in M3. `SCHEMA_VERSION` 2 has now **shipped**, in `0.1.0`, behind an Action that pins it. This would be the first bump with a real cost, and it is avoidable.
+No `SCHEMA_VERSION` bump, on the M3 precedent: *a new command is an addition, and nothing pinned on 2 can break on a shape it has never seen.* A second provider's reports are likewise a shape no consumer has seen, and every report in the wild today keeps all four keys byte for byte. This matters more than it did in M3 — version 2 has now **shipped**, in `0.1.0`, behind an Action that pins it, so this would be the first bump with a real cost, and it is avoidable.
 
-Additive alongside it: `EvalReport.provider`, so a report says which vendor produced it without anyone parsing the model id. `test/schema.test.ts` extends to cover both.
+Watch `sumUsage`/`addUsage`: absent must stay absent rather than coercing to zero, or the distinction dies one line below where it was made.
 
-Consequence to watch: `sumUsage`/`addUsage` in `pricing.ts` must treat absent as absent rather than coercing to zero, or the distinction is destroyed one line below where it was made.
+### 2.3 The unit of comparison is model **+ reasoning config + loading regime**
 
-### 2.3 Scores are per-model, never averaged or ranked across models
+Scores are never averaged across any of the three, for the reason mutation scores are never averaged across adapters (spec §11.7): they are measurements of different things, and a mean of them has no referent.
 
-The same rule as mutation scores per adapter (spec §11.7), for the same reason. A pass rate under one model and another are two measurements of different things; a mean of them is a number with no referent. The report prints them side by side, never combined, and any leaderboard shows a row per model rather than an aggregate column.
+`EvalReport.model` alone no longer identifies a run — the same model at two reasoning efforts is two measurements. `diffReports` must refuse across differing reasoning configs and loading regimes exactly as it already refuses across models.
 
-**The delta is the finding, and it is not a ranking.** "94% here, 61% there" says the description is doing work for one model and not the other — actionable. "Average 77%" says nothing and invites optimisation against the average.
+**The delta is the finding, and it is not a ranking.** "94% here, 61% there" says the description works for one model and not the other. "Average 77%" says nothing and invites optimising against the average.
 
-### 2.4 Parallel tool calls stay enabled
+### 2.4 Parallel tool calls stay at the provider default — **confirmed**
 
-Some providers default to permitting several tool calls in one turn, and expose a switch to forbid it. Leave it at whatever the provider does by default, and **do not** force single-call mode for comparability.
+Research confirms the switch is a hard gate: disabling it "ensures exactly zero or one tool is called". That is exactly why it must stay on. Selection already passes only on *exactly one call, the expected one*, because over-eager tool calling is a real failure mode (M2). Making the API structurally incapable of over-calling would suppress the failure the metric exists to catch and report a surface as clean because the harness tied the model's hands.
 
-Selection already passes only on *exactly one call, the expected one*, because over-eager tool calling is a real failure mode (M2). Forcing the API to prevent the model from over-calling would suppress the failure this metric exists to catch, and would report a surface as clean because the harness tied the model's hands. If two providers differ here, that difference is a result.
+### 2.5 Strict / structured-output modes stay off — unchanged
 
-### 2.5 Strict / structured-output modes stay off
+`toAnthropicTool` already declines `strict: true` and says why. The same applies to any schema-enforcement mode, with an extra edge: enforced arguments would push the *argument* pass rate toward 100% for reasons unrelated to the manifest's quality.
 
-`toAnthropicTool` already declines `strict: true`, and says why: it rejects JSON Schema constructs common in real manifests, and it constrains generation. The same applies to any provider's schema-enforcement mode, with an extra edge — enforced arguments would inflate the *argument* pass rate toward 100% for reasons that have nothing to do with the manifest's quality. We measure what the model does with the schema as written.
+### 2.6 No seeding — strengthened
 
-### 2.6 No seeding, even where a provider offers one
+Some providers expose a best-effort seed. Do not use it. Variance is the premise, not the noise. The findings strengthen this: a model treating reasoning effort as a *ceiling* may reason on one trial and not the next, so a meaningful part of the variance is not seedable away at all. A seed would hide some of it and imply the rest was controlled.
 
-Some providers expose a best-effort `seed`. Do not use it. The spec's "deterministic seeding where the provider allows it" was written before M2 established that **variance is the premise, not the noise** — every assertion is a pass rate over N trials precisely because selection is non-deterministic. A seeded run understates variance, and a seeded run compared against an unseeded one is not a comparison at all. Refusing it also keeps the two providers symmetrical, which is the entire point of the exercise.
+### 2.7 Provider inferred from the model id — revised
 
-### 2.7 The provider is inferred from the model id, with an override
+`claude-*` → Anthropic, `gpt-*` → OpenAI, `--provider <id>` settles anything ambiguous. Same idiom as `parseTarget` + `--adapter`, so there is one detection pattern in the codebase. An unrecognised id errors naming both providers, never silently defaults.
 
-`claude-*` → Anthropic, `gpt-*`/`o*` → OpenAI, and `--provider <id>` settles anything ambiguous. Exactly the shape `parseTarget` + `--adapter` already has, so there is one detection idiom in the codebase rather than two. An unrecognised model id is an error naming both providers — never a silent default, which would send a run to the wrong vendor and produce a credential error that names the wrong variable.
+Two corrections:
+
+- `o*` is legacy and should not anchor detection.
+- **Record the model id returned in the response, not the one sent.** Aliases route to a dated target, so a report that stores the requested id does not pin what actually ran.
+
+This last one is a free upgrade to M4. `diffReports` currently *warns* when a baseline names an alias, because an alias can be re-pointed underneath it. If the report records what actually ran, an alias re-point surfaces as a **model mismatch**, which `diffReports` already **refuses**. A soft warning becomes a hard refusal at no cost — strictly better, and it retires the weakest part of the M4 baseline story.
+
+### 2.8 Loading regime is the independent variable — **new**
+
+Both providers now support deferred tool loading: the model gets a search tool, discovers what it needs, and loads only that. This is premise-level, because the founding claim is that a manifest sits in context in full.
+
+It is more opportunity than threat. **Under tool search the description is what gets searched**, so a bad description means the tool is never loaded at all — a harder failure than being loaded and passed over. The thing pickrate measures gains importance.
+
+The distinction against §2.4 is the crux and it is not a fudge:
+
+- Parallel tool calls are **the model's behaviour given the surface** — the dependent variable. Forcing them off censors the outcome under observation.
+- Tool search changes **what surface the model sees at all** — the independent variable. Leaving it at the provider default silently compares two regimes and blames the manifest.
+
+So: `--tool-search on|off|both`, always recorded, **never left at the provider default**.
+
+- **Eager (`off`) is the control**, and the mode cross-provider comparison runs in — the only one where a delta is attributable to the manifest rather than to two vendors' different retrievers.
+- **Deferred (`on`) is the second measurement**, and the more interesting one. It does not remove description-based selection, it adds a **second round** of it: *retrieval* (does search surface this tool?) then *selection* (once loaded, is it called?).
+
+Neither is the default. **The delta between them is the headline:** *"Eagerly loaded, 94%. Under tool search, 61% — retrieval never surfaces two of your tools."* A finding with an obvious fix attached, in the same delta-not-absolute shape as §2.3.
+
+The author does not control which regime they are in — ship a server and some clients defer, some do not — which is the argument for reporting both rather than choosing.
+
+**Consequences that reach other milestones:**
+
+- **Retrieval and selection are scored separately**, like selection/arguments/restraint. A tool that retrieves reliably but is passed over is a different bug from one that never surfaces.
+- **Namespace descriptions are a new authored artifact carrying a triggering burden, and nothing lints them anywhere.** They belong in the analyser (M1): presence, length against the "short and discriminative" guidance, and overlap between namespaces.
+- **Token cost becomes a pair, not a number.** Eager cost versus deferred cost — arguably more useful than the single figure, but it does mean `inspect`'s headline needs an asterisk.
+- **Mutation operators change meaning under deferral, so mutation scores are per-regime too.** `inject-decoys` assumes decoys bloat context; decoys that are never retrieved do nothing, so the operator's kill rate would fall for reasons that say nothing about harness sensitivity. `blank-description` should get *more* lethal, since an undescribed tool cannot be retrieved. Comparing a mutation score across regimes would read those two artefacts as a change in trustworthiness.
+- **Cost.** `both` doubles a run, and `mutate` already costs `2 + n` runs. `mutate --tool-search both` is `2 × (2 + n)` and should require an explicit opt-in rather than being reachable by combining two innocuous flags.
+- **The 49% → 74% selection-accuracy improvement attributed to tool search is an unverified vendor-adjacent claim about exactly the thing pickrate measures.** Independently checking it is a strong, specific, publishable M5 result.
+
+### 2.9 Reasoning config is part of the measurement — **new**
+
+Effort and mode go in `EvalReport`, in the presentation hash, and into `diffReports`' refusal set. Beyond identification, effort has two properties that matter here: it is a **ceiling not a floor**, so it is a variance source (§2.6), and its tokens **bill as output**, so it is a per-trial variable cost the preflight cannot bound (§1.4b).
+
+### 2.10 A truncated response is an error, never restraint — **new, and fix this now**
+
+Any finish reason indicating the model ran out of output budget must produce `TrialResult.error`, not an empty call list. Empty calls mean *the model chose to call nothing*; truncation means *we never found out what it chose*. Conflating them is a false pass in the most neglected metric (§1.6).
+
+This is also why capping output tokens is not available as a cost control for reasoning models (§1.4b): a cap tight enough to bound spend is a cap that truncates, and a truncated trial is a discarded trial. Budget for reasoning generously and let the errored-trial rate — already gated by `maxErrorRate` since M4 — be the thing that says the run is unmeasurable.
+
+### 2.11 Presentation hash replaces "byte-identical prompts" — **new**
+
+Byte-identity was the original plan's control and it is not achievable: one API takes `instructions` where the other takes a system-role message, so the requests differ structurally before any wording question. It was also insufficient — reasoning config, reasoning mode and loading regime all move selection behaviour while the prompt bytes sit still, producing a comparison that *looks* controlled and is not.
+
+Instead: hash the whole presentation — prompt text, tool declaration shape, reasoning config, tool-search state — record it per provider per run, and print it beside the score. `ReplayProvider` already refuses foreign presentations; widen what "presentation" covers rather than pretending two providers can be made identical.
 
 ---
 
 ## 3. Module layout
 
-Mirrors the adapter split, including the reason for the file split:
-
 ```
-src/provider/contract.ts    Provider, ProviderCapabilities, CostEstimate   (interfaces only)
-src/provider/index.ts       the registry: providerFor(model), --provider override
-src/provider/anthropic.ts   unchanged except capabilities + neutral usage
+src/provider/contract.ts    Provider, ModelCapabilities, CacheBehaviour, CostEstimate
+src/provider/index.ts       registry: providerFor(model), --provider override
+src/provider/models.ts      the model table — data, not code (see below)
+src/provider/anthropic.ts   + capabilities, neutral usage, truncation guard
 src/provider/openai.ts      the new one — the ONLY place importing the OpenAI SDK
-src/provider/pricing.ts     per-provider cache multipliers
+src/provider/pricing.ts     reads the model table; per-model read AND write multipliers
 ```
 
-`contract.ts` splits from `index.ts` for the same runtime-cycle reason as `src/adapters/contract.ts`: the registry imports every provider and every provider needs the interfaces, and one module is a cycle that typechecks and then throws at runtime. That trap has already been hit once in this codebase; do not hit it again.
+`contract.ts` splits from `index.ts` for the same runtime-cycle reason as `src/adapters/contract.ts`: the registry imports every provider and every provider needs the interfaces. That trap has been hit once in this codebase already.
+
+**The model table is data from day one.** The findings settle the plan's original open question 4 in the split direction: the *registry* (id → provider) is two entries and stays code, but cache style, write billing, multipliers, long-context threshold, reasoning support and tool-search support all vary per model. A table keyed by model id costs nothing now and makes provider three a data edit.
 
 ---
 
 ## 4. CLI surface
 
 ```
---provider <id>     anthropic | openai — overrides detection from the model id
---models <a,b>      run the same config against several models (see §5)
+--provider <id>          anthropic | openai — overrides detection from the model id
+--models <a,b>           run the same config against several models
+--tool-search on|off|both   loading regime; never defaults to the provider's default
+--reasoning <effort>     where the model supports it; recorded in the report
 ```
 
-`defaults.model` in the config stays a single id. `--models` is a run-level flag rather than a config key, because a stored config that silently runs two models doubles someone's bill on an invocation that looks identical to the one they costed.
+`defaults.model` stays a single id in config. `--models` and `--tool-search both` are run-level flags rather than config keys, because a stored config that silently runs two models or two regimes doubles the bill on an invocation that looks identical to the one it was costed at.
 
 ---
 
-## 5. Cross-model comparison — the actual deliverable
-
-Everything above is plumbing for one output. `pickrate run config.yaml --models claude-haiku-4-5,gpt-…` runs the config once per model and reports them side by side:
+## 5. Cross-model comparison — the deliverable
 
 ```
   scenario                  claude-…    gpt-…      Δ
@@ -176,13 +250,14 @@ Everything above is plumbing for one output. `pickrate run config.yaml --models 
   no-tool-needed                100%      72%    −28%   ← restraint differs sharply
 ```
 
-Three rules, all inherited rather than invented:
+Rules, all inherited rather than invented:
 
-- **The Δ column is a diagnostic, not a score.** Neither model is the reference; the report names both and ranks neither.
-- **A Δ below the noise floor is not a difference.** Same floor as `--baseline`, from `minNoise(trials)`, for the same reason — and here it has to be per-model, since the two runs can have different error rates.
-- **Restraint deltas get read separately.** M3 already established that damage makes a model less willing to call anything, so restraint moves opposite to selection. A model that is simply more reluctant will look better on restraint and worse on selection, and averaging the two hides it.
+- **Δ is a diagnostic, not a score.** Neither model is the reference; both are named, neither is ranked.
+- **A Δ below the noise floor is not a difference.** Same floor as `--baseline`, from `minNoise(trials)`, computed **per model** since error rates differ.
+- **Restraint deltas are read separately.** M3 established that damage makes a model less willing to call anything, so restraint moves opposite to selection; a model that is merely more reluctant looks better on restraint and worse on selection, and a mean hides it.
+- **Comparison runs eager** (§2.8), so a delta is attributable to the manifest rather than to two vendors' retrievers.
 
-This subsumes open question 3 in [`ci-plan.md`](ci-plan.md) — a standalone `pickrate compare` — since the machinery is the same and this has an actual use case behind it.
+This subsumes `ci-plan.md`'s open question 3 (a standalone `pickrate compare`): same machinery, and now with a use case behind it.
 
 ---
 
@@ -190,33 +265,62 @@ This subsumes open question 3 in [`ci-plan.md`](ci-plan.md) — a standalone `pi
 
 | Test | Asserts |
 |---|---|
-| `test/provider-registry.test.ts` | model id → provider detection; `--provider` overrides; an unknown id errors naming both |
-| `test/capabilities.test.ts` | the runner warms only for `explicit-breakpoint`, and fans out immediately otherwise |
-| `test/usage.test.ts` | absent cache fields stay absent through `sumUsage`, and a report from a non-caching provider omits rather than zeroes them |
-| `test/schema.test.ts` (extend) | an Anthropic report keeps all four usage keys; `provider` is present on both; `SCHEMA_VERSION` stays 2 |
-| `test/compare-models.test.ts` | the Δ table, the per-model noise floor, restraint read separately |
+| `test/provider-registry.test.ts` | id → provider; `--provider` overrides; unknown id errors naming both; `o*` is not treated as current |
+| `test/capabilities.test.ts` | capabilities resolve per model, not per provider; the runner warms only for explicit-breakpoint **and** an estimated prefix over the minimum |
+| `test/truncation.test.ts` | a truncated response is an error, **never** an empty call list — asserted against a restraint scenario, where the bug is a false pass |
+| `test/usage.test.ts` | absent cache fields survive `sumUsage` as absent; a report from a model with no write concept omits rather than zeroes |
+| `test/pricing.test.ts` | per-model write multipliers; the long-context meter fires above the threshold; a decoy-injected manifest is priced past it |
+| `test/schema.test.ts` (extend) | an Anthropic report keeps all four usage keys; `provider`, reasoning config and loading regime are present; `SCHEMA_VERSION` stays 2 |
+| `test/compare-models.test.ts` | the Δ table; per-model noise floor; restraint read separately |
+| `test/tool-search.test.ts` | retrieval and selection scored separately; a tool that never retrieves is distinguishable from one retrieved and passed over |
 
-New fixture: `test/fixtures/trials/git-server-openai.json` — the same scenarios recorded against the second provider, so the cross-model path runs with no key. It should deliberately contain one scenario where the two models **disagree past the floor** and one where they differ **inside** it, so "a small difference is not a difference" is exercised by construction rather than by luck. Same discipline as the M4 baseline fixture.
+New fixtures, both built so the interesting case is exercised by construction rather than by luck — the same discipline as M4's baseline fixture:
+
+- `test/fixtures/trials/git-server-openai.json` — the same scenarios on the second provider, with one scenario where the models disagree **past** the floor and one where they differ **inside** it.
+- `test/fixtures/trials/git-server-deferred.json` — a tool that retrieves but is passed over, and one that never surfaces.
 
 ---
 
 ## 7. Build order
 
-Each step leaves the tree green and ships on its own. Steps 1–2 are worth doing **even if the OpenAI provider never lands**, because they are corrections to the existing seam.
+Steps 0–2 are worth doing **even if the OpenAI provider never lands**: they are corrections to shipped code, not preparation for new code.
 
 | # | Step | Cost |
 |---|---|---|
-| 1 | `ProviderCapabilities`, runner asks instead of assumes, `contract.ts` split | offline |
-| 2 | Neutral `TrialUsage`, `provider` on reports, per-provider cache pricing, credential copy | offline |
-| 3 | `src/provider/openai.ts` + registry + detection | one live run to prove it |
-| 4 | `--models`, the Δ report, the recorded fixture | offline after step 3 |
+| **0** | **Truncation guard (§2.10)** — a live false-pass in the primary metric | offline |
+| 0b | Calibrate `gpt-tokenizer` against both authoritative counting endpoints on the fixtures; decide whether `inspect`'s headline is a measurement or an estimate | one call per fixture |
+| 1 | `ModelCapabilities` per model, two-axis `CacheBehaviour`, `contract.ts` split, runner asks instead of assumes | offline |
+| 2 | Neutral `TrialUsage`, `provider` + reasoning config on reports, model table, write multipliers, long-context meter, credential copy, resolved model id from the response | offline |
+| 3 | `src/provider/openai.ts` (Responses API) + registry + detection | one live run |
+| 4 | `--models`, the Δ report, the recorded fixture | offline after 3 |
 | 5 | README, CLAUDE.md invariants, spec §7 amendment | free |
+| **6** | **Deferred loading** — deliberately last, deliberately not cut | see below |
+
+Step 6 needs 1–4 finished, since the eager/deferred delta is only trustworthy once the presentation hash covers loading regime:
+
+| | Piece | Cost |
+|---|---|---|
+| 6a | Namespace-description linting in the analyser; eager vs deferred token cost reported separately | offline |
+| 6b | `--tool-search` through both providers; retrieval and selection scored separately | live |
+| 6c | The eager/deferred delta report + the deferred fixture | offline after 6b |
+
+6a is worth doing on its own schedule: offline, no key, and namespace descriptions are currently unlinted by anything anywhere.
 
 ---
 
 ## 8. Open questions
 
-1. **Which OpenAI API surface — Chat Completions or Responses?** They differ in tool declaration shape and in what they report about caching. *This plan was written against a May 2026 knowledge cutoff and the surface moves quickly: confirm the current tool-call shape, the `tool_choice` values, the parallel-call default, and exactly which cached-token fields come back in `usage`, before writing step 3.* The decisions in §2 do not depend on the answer; the ~200 lines in step 3 do.
-2. **Does the system prompt stay byte-identical across providers?** It has to, or the comparison has two variables. But `SYSTEM_PROMPT` was tuned thin for one model's behaviour, and "thin enough not to put a thumb on the scale" may not land identically elsewhere. Measure before assuming; if it has to differ, that fact belongs in the report next to the scores.
-3. **Do local tokeniser estimates undermine the preflight's purpose?** The estimate exists so nobody discovers the cost after paying it. An approximation that is 20% low still serves that. One that is 3× low does not, and it would be worse than printing nothing.
-4. **A third provider — is the registry the right shape, or does this want config?** Two providers justify a registry. Five would want the model→provider map to be data rather than code. Not a problem yet; worth not designing against.
+The original four are resolved — see Part 1 of the findings. What remains:
+
+1. **Does the preflight promise survive reasoning models?** (§1.4b) The cost confirmation exists so nobody discovers the cost after paying it, and reasoning tokens make the estimate a lower bound that cannot be tightened without §2.10's truncation risk. Options: present a range, label reasoning spend as unbounded, or measure typical reasoning overhead once and carry a factor. Needs one real run to decide, and it is a user-facing promise, so it should not be decided by default.
+2. **Which second model is the right counterpart to a cheap Anthropic one?** Reasoning tokens bill as output at several times input, so a nominally cheap tier that reasons by default may not be cheap. **Cost one scenario at 20 trials before committing to a default.**
+3. **Does the mutation loop want a regime at all, or does it stay eager forever?** (§2.8) Eager keeps mutation scores comparable across runs, which is the property that makes them worth anything — but a harness that can only detect damage under a regime half the ecosystem does not use is measuring the wrong thing. Probably eager-by-default with deferred as an explicit study, but this is not settled.
+4. **Where does the retrieval score live in the report shape?** It is a third rate alongside selection and arguments, but only exists in one regime, and a `ScenarioScore` with a field that is meaningful half the time is the kind of thing that gets misread.
+
+### Still to verify live, before step 3
+
+1. Exact Responses tool-declaration shape against current SDK types — do not port the Chat Completions shape.
+2. Whether the token-count endpoint is free and unmetered (assumed by analogy, unconfirmed).
+3. Cache retention: sources conflict between ≥30 minutes and a 24-hour default. Nothing structural depends on it, but the runner's warm-cache assumptions across a long run do.
+4. Whether `store` defaults on for Responses, and whether trials must set `store: false` for independence.
+5. Whether the response returns a resolved dated model id for an alias on **both** providers (§2.7). The alias-to-refusal upgrade depends on it.
