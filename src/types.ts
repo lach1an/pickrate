@@ -183,8 +183,88 @@ export interface EvalConfig {
   target: string;
   defaults: EvalDefaults;
   scenarios: Scenario[];
+  /** CI gates. Lives in the repo next to the scenarios — see `CiGates`. */
+  ci: CiGates;
   /** Where the config was loaded from, for the report header. */
   path: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* CI                                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Thresholds that decide whether a build goes red.
+ *
+ * They live in the config file rather than in a workflow's YAML string,
+ * because a threshold argued over in review belongs in the repo next to the
+ * scenarios it judges. CLI flags override; every gate is off by default except
+ * `maxErrorRate`.
+ */
+export interface CiGates {
+  /** inspect: fail on findings at or above this severity. `null` is off. */
+  failOn?: Severity | null;
+  /** inspect: resident token budget. Skills' bodies are never counted. */
+  maxTokens?: number;
+  /** run: how many scenarios may sit in the 20–80% flakiness band. */
+  maxFlaky?: number;
+  /** run: how many items no scenario ever selected. */
+  maxOrphans?: number;
+  /**
+   * run: the fraction of trials that may error before the run is *unmeasured*.
+   *
+   * The one gate that defaults on, and the one whose breach is exit 2 rather
+   * than exit 1. Errored trials leave the denominator, so a run where 18 of 20
+   * trials died on transport reports a confident 100% from the two that
+   * survived. Locally a human sees the "18 errored" line; in CI nobody reads
+   * the log of a green build.
+   */
+  maxErrorRate: number;
+  /** run --baseline: the worst per-scenario drop that is tolerated. */
+  maxRegression?: number;
+  /** mutate: the mutation score floor. */
+  minScore?: number;
+}
+
+/** One gate's verdict. Pure data — the exit code is derived from a list of them. */
+export interface GateResult {
+  /** Stable id, e.g. `max-flaky`, `max-regression`. */
+  id: string;
+  limit: number | string;
+  observed: number | string;
+  passed: boolean;
+  /** Breached this way means unmeasured (exit 2), not bad (exit 1). */
+  unmeasured?: boolean;
+  message: string;
+}
+
+/** A head run compared against a stored one. See `src/ci/compare.ts`. */
+export interface ReportDiff {
+  baseline: { model: string; startedAt: string; path: string };
+  /** What a drop must clear: `max(maxRegression, minNoise(trials))`. */
+  floor: number;
+  scenarios: Array<{
+    id: string;
+    baseline: number;
+    head: number;
+    /** `head - baseline`. Negative is a drop. */
+    delta: number;
+    regressed: boolean;
+  }>;
+  meanDelta: number;
+  /** Scenarios that passed on the baseline and fail now. */
+  newFailures: string[];
+  /** Scenarios that failed on the baseline and pass now. */
+  fixed: string[];
+  newOrphans: string[];
+  /**
+   * Things that make the comparison less trustworthy without invalidating it.
+   *
+   * An aliased model id is the standing one: `claude-haiku-4-5` can be
+   * re-pointed underneath a stored baseline, so a two-week-old diff quietly
+   * mixes a description change with a model update.
+   */
+  warnings: string[];
 }
 
 /* -------------------------------------------------------------------------- */

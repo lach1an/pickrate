@@ -1,0 +1,29 @@
+# One config, three commands — the shape the GitHub Action assumes, where
+# `inspect --config` takes its target and its gates from the same file the
+# scenarios live in.
+#
+# Points at the messy manifest on purpose: every gate here is breached, so a
+# gate that silently failed to fire would show up as a green run.
+server:
+  transport: file
+  manifest: ./messy-server.json
+
+defaults:
+  trials: 5
+  threshold: 0.95
+  model: claude-haiku-4-5
+  concurrency: 4
+
+ci:
+  failOn: error
+  maxTokens: 100
+  maxFlaky: 0
+  maxOrphans: 0
+  maxErrorRate: 0.1
+  minScore: 0.7
+
+scenarios:
+  - id: search
+    prompt: "find every file mentioning the retry budget"
+    expect:
+      tool: search_files

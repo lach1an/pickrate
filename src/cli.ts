@@ -1,10 +1,19 @@
 #!/usr/bin/env node
+import { writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
+import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import pc from 'picocolors';
 import { analyse } from './analyser/index.js';
-import { loadConfig } from './config/index.js';
+import { DEFAULT_GATES, loadConfig } from './config/index.js';
 import { adapterFor, loadSurface, type LoadOptions, type Presentation } from './adapters/index.js';
+import {
+  evaluateAnalysisGates,
+  evaluateMutationGates,
+  evaluateRunGates,
+  exitCodeFor,
+} from './ci/gates.js';
+import { Exit, type ExitCode } from './exit.js';
 import { AnthropicProvider, CredentialError } from './provider/anthropic.js';
 import { formatUsd } from './provider/pricing.js';
 import { ReplayProvider } from './provider/replay.js';
@@ -17,11 +26,17 @@ import {
   type MutationProgress,
 } from './mutator/index.js';
 import { formatEvalReport } from './report/eval.js';
-import { formatAnalysisJson, formatEvalReportJson, formatMutationReportJson } from './report/json.js';
+import { formatGates } from './report/gates.js';
+import {
+  formatAnalysisJson,
+  formatEvalReportJson,
+  formatMutationReportJson,
+  type CiExtras,
+} from './report/json.js';
 import { formatMutationReport } from './report/mutation.js';
 import { formatAnalysis } from './report/table.js';
 import { runEval, totalTrials } from './runner/index.js';
-import type { EvalConfig, Severity, SurfaceKind } from './types.js';
+import type { CiGates, EvalConfig, GateResult, Severity, SurfaceKind } from './types.js';
 
 const VERSION = '0.0.0';
 
@@ -41,30 +56,37 @@ ${pc.bold('Targets')}
   ./.claude/skills               a directory of SKILL.md files
 
 ${pc.bold('inspect options')}
-  --json                  machine-readable output
+  --config <file>         read target: and ci: from a config file
   --fail-on <severity>    exit 1 when findings at or above this level exist
                           (error | warn | info | none, default: none)
   --disable <ids>         comma-separated rule ids to skip
 
 ${pc.bold('run options')}
-  --json                  machine-readable output
   --dry-run               print the cost estimate and exit without spending
   --yes                   skip the cost confirmation
   --model <id>            override defaults.model
   --trials <n>            override defaults.trials
   --replay <file>         replay recorded trials instead of calling a model
   --presentation <mode>   skills only: skill-tool (default) or pseudo-tool
+  --baseline <file>       compare against a stored JSON report
+  --max-regression <0..1> worst per-scenario drop allowed, against --baseline
+  --max-flaky <n>         scenarios allowed in the 20–80% band
+  --max-orphans <n>       items allowed that no scenario ever selected
+  --max-error-rate <0..1> errored trials before the run counts as unmeasured
 
 ${pc.bold('mutate options')}
   --mutants <n>           how many defects to inject (default: ${DEFAULT_MUTANTS})
   --operators <ids>       comma-separated: blank-description, swap-descriptions,
                           inject-decoys (default: all of them)
   --min-score <0..1>      exit 1 when the mutation score falls below this
-  plus --json, --dry-run, --yes, --model, --trials, --presentation from run.
+  plus --dry-run, --yes, --model, --trials, --presentation from run.
   ${pc.dim(`Costs ${BASELINE_RUNS} clean runs plus one per mutant — the clean runs are the`)}
   ${pc.dim('noise floor, and a drop smaller than that means nothing.')}
 
 ${pc.bold('shared options')}
+  --format <mode>         table (default), json or markdown
+  --json                  alias for --format json
+  --out <file>            write the JSON report here, whatever --format prints
   --adapter <id>          force mcp or skills, skipping target detection
   --header <k=v>          extra HTTP header (repeatable)
   --env <k=v>             extra env var for stdio servers (repeatable)
@@ -72,18 +94,27 @@ ${pc.bold('shared options')}
   -h, --help              this
   -v, --version           version
 
+${pc.bold('exit codes')}
+  0  measured, gates passed        2  could not measure — see the gate block
+  1  measured, the answer is bad   130  cancelled at the cost confirmation
+
 ${pc.dim('inspect makes no model calls and needs no API key.')}
 `;
 
-const SEVERITY_RANK: Record<Severity, number> = { error: 3, warn: 2, info: 1 };
-
-async function main(argv: string[]): Promise<number> {
+/**
+ * Parse argv and dispatch. Exported so the exit-code contract can be tested
+ * end to end against the replay fixtures rather than asserted about in prose.
+ */
+export async function main(argv: string[]): Promise<ExitCode> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
     options: {
       json: { type: 'boolean', default: false },
-      'fail-on': { type: 'string', default: 'none' },
+      format: { type: 'string' },
+      out: { type: 'string' },
+      config: { type: 'string' },
+      'fail-on': { type: 'string' },
       disable: { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
       yes: { type: 'boolean', default: false },
@@ -91,6 +122,11 @@ async function main(argv: string[]): Promise<number> {
       trials: { type: 'string' },
       replay: { type: 'string' },
       presentation: { type: 'string' },
+      baseline: { type: 'string' },
+      'max-regression': { type: 'string' },
+      'max-flaky': { type: 'string' },
+      'max-orphans': { type: 'string' },
+      'max-error-rate': { type: 'string' },
       mutants: { type: 'string' },
       operators: { type: 'string' },
       'min-score': { type: 'string' },
@@ -105,14 +141,14 @@ async function main(argv: string[]): Promise<number> {
 
   if (values.version) {
     process.stdout.write(`${VERSION}\n`);
-    return 0;
+    return Exit.Ok;
   }
 
   const [command, target] = positionals;
 
   if (values.help || command === undefined || command === 'help') {
     process.stdout.write(`${USAGE}\n`);
-    return command === undefined && !values.help ? 2 : 0;
+    return command === undefined && !values.help ? Exit.Unmeasured : Exit.Ok;
   }
 
   const loadOptions: LoadOptions & { adapter?: SurfaceKind } = {
@@ -123,9 +159,9 @@ async function main(argv: string[]): Promise<number> {
   };
 
   if (command === 'inspect') {
-    if (target === undefined) {
-      process.stderr.write(`inspect needs a target.\n${USAGE}\n`);
-      return 2;
+    if (target === undefined && values.config === undefined) {
+      process.stderr.write(`inspect needs a target, or a --config to read one from.\n${USAGE}\n`);
+      return Exit.Unmeasured;
     }
     return inspect(target, loadOptions, values);
   }
@@ -133,7 +169,7 @@ async function main(argv: string[]): Promise<number> {
   if (command === 'run') {
     if (target === undefined) {
       process.stderr.write(`run needs a config file.\n${USAGE}\n`);
-      return 2;
+      return Exit.Unmeasured;
     }
     return run(target, loadOptions, values);
   }
@@ -141,39 +177,60 @@ async function main(argv: string[]): Promise<number> {
   if (command === 'mutate') {
     if (target === undefined) {
       process.stderr.write(`mutate needs a config file.\n${USAGE}\n`);
-      return 2;
+      return Exit.Unmeasured;
     }
     return mutate(target, loadOptions, values);
   }
 
   process.stderr.write(`Unknown command: ${command}\n${USAGE}\n`);
-  return 2;
+  return Exit.Unmeasured;
 }
 
 /* -------------------------------------------------------------------------- */
 
 type Values = Record<string, unknown>;
 
-async function inspect(target: string, loadOptions: LoadOptions, values: Values): Promise<number> {
-  const failOn = parseFailOn(values['fail-on'] as string | undefined);
-  const surface = await loadSurface(target, loadOptions);
+/** What goes on stdout. `--out` writes JSON regardless, so both can come from one run. */
+type Format = 'table' | 'json' | 'markdown';
+
+async function inspect(
+  target: string | undefined,
+  loadOptions: LoadOptions,
+  values: Values,
+): Promise<ExitCode> {
+  const format = parseFormat(values);
+
+  // One config drives all three commands, so the Action needs a single input:
+  // `inspect --config pickrate.yaml` takes both the target and the gates from
+  // the file that the scenarios already live in.
+  const configPath = values.config as string | undefined;
+  const config = configPath === undefined ? undefined : await loadConfig(configPath);
+  const resolved = target ?? config?.target;
+  if (resolved === undefined) {
+    throw new Error(`${configPath} has no target: to inspect.`);
+  }
+
+  const surface = await loadSurface(resolved, loadOptions);
   const disable = values.disable as string | undefined;
   const analysis = analyse(surface, {
     ...(disable ? { disable: disable.split(',').map((id) => id.trim()) } : {}),
   });
 
-  process.stdout.write(
-    values.json ? `${formatAnalysisJson(analysis)}\n` : `${formatAnalysis(analysis)}\n`,
-  );
+  const gates = evaluateAnalysisGates(analysis, gatesFor(config?.ci, values));
 
-  if (failOn === null) return 0;
-  const breached = analysis.findings.some((f) => SEVERITY_RANK[f.severity] >= SEVERITY_RANK[failOn]);
-  return breached ? 1 : 0;
+  await emit(format, values, {
+    table: () => formatAnalysis(analysis),
+    json: () => formatAnalysisJson(analysis, { gates }),
+    gates,
+  });
+
+  return exitCodeFor(gates);
 }
 
-async function run(configPath: string, loadOptions: LoadOptions, values: Values): Promise<number> {
+async function run(configPath: string, loadOptions: LoadOptions, values: Values): Promise<ExitCode> {
   const config = applyOverrides(await loadConfig(configPath), values);
-  const json = values.json === true;
+  const format = parseFormat(values);
+  const json = format === 'json';
 
   const surface = await loadSurface(config.target, loadOptions);
   const replay = values.replay as string | undefined;
@@ -191,13 +248,13 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
 
   if (values['dry-run'] === true) {
     if (!json) process.stderr.write(pc.dim('  --dry-run: nothing was spent.\n\n'));
-    return 0;
+    return Exit.Ok;
   }
 
   if (estimate && !json && values.yes !== true && process.stdin.isTTY) {
     if (!(await confirm())) {
       process.stderr.write(pc.dim('  Cancelled.\n'));
-      return 130;
+      return Exit.Cancelled;
     }
   }
 
@@ -208,12 +265,17 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
   });
   await provider.close?.();
 
-  process.stdout.write(json ? `${formatEvalReportJson(report)}\n` : `${formatEvalReport(report)}\n`);
+  // A run that could not measure anything must not look like a pass — which is
+  // the `max-error-rate` gate's whole job, and it is on by default.
+  const gates = evaluateRunGates(report, gatesFor(config.ci, values));
 
-  // A run that could not measure anything must not look like a pass.
-  const errored = report.scenarios.reduce((sum, s) => sum + s.errors, 0);
-  if (errored === trials) return 2;
-  return report.scenarios.every((s) => s.passed) ? 0 : 1;
+  await emit(format, values, {
+    table: () => formatEvalReport(report),
+    json: () => formatEvalReportJson(report, { gates }),
+    gates,
+  });
+
+  return exitCodeFor(gates);
 }
 
 /**
@@ -223,9 +285,14 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
  * other tool in this space tells you how good your surface is; this tells you
  * how much to believe that (spec §6).
  */
-async function mutate(configPath: string, loadOptions: LoadOptions, values: Values): Promise<number> {
+async function mutate(
+  configPath: string,
+  loadOptions: LoadOptions,
+  values: Values,
+): Promise<ExitCode> {
   const config = applyOverrides(await loadConfig(configPath), values);
-  const json = values.json === true;
+  const format = parseFormat(values);
+  const json = format === 'json';
 
   // Replay is keyed on scenario id and knows nothing about the surface, so
   // every mutant would replay identically and score exactly zero — a mutation
@@ -264,13 +331,13 @@ async function mutate(configPath: string, loadOptions: LoadOptions, values: Valu
         pc.dim(`  ${mutants.length} mutants over ${runs} runs. --dry-run: nothing was spent.\n\n`),
       );
     }
-    return 0;
+    return Exit.Ok;
   }
 
   if (estimate && !json && values.yes !== true && process.stdin.isTTY) {
     if (!(await confirm())) {
       process.stderr.write(pc.dim('  Cancelled.\n'));
-      return 130;
+      return Exit.Cancelled;
     }
   }
 
@@ -282,13 +349,68 @@ async function mutate(configPath: string, loadOptions: LoadOptions, values: Valu
   });
   await provider.close?.();
 
-  process.stdout.write(
-    json ? `${formatMutationReportJson(report)}\n` : `${formatMutationReport(report)}\n`,
-  );
+  const gates = evaluateMutationGates(report, gatesFor(config.ci, values));
 
-  const minScore = parseThreshold(values['min-score'] as string | undefined);
-  if (minScore === undefined) return 0;
-  return report.mutationScore >= minScore ? 0 : 1;
+  await emit(format, values, {
+    table: () => formatMutationReport(report),
+    json: () => formatMutationReportJson(report, { gates }),
+    gates,
+  });
+
+  return exitCodeFor(gates);
+}
+
+interface Rendered {
+  table: () => string;
+  json: () => string;
+  gates: GateResult[];
+}
+
+/**
+ * Write the report: one rendering to stdout, and JSON to `--out` if asked.
+ *
+ * Both from the same run, deliberately. The Action wants a human artifact for
+ * the step summary and a machine one for the artifact upload, and running the
+ * eval twice to get two formats doubles the API bill for no new measurement.
+ */
+async function emit(format: Format, values: Values, rendered: Rendered): Promise<void> {
+  const out = values.out as string | undefined;
+
+  if (format === 'json') {
+    process.stdout.write(`${rendered.json()}\n`);
+  } else {
+    const gates = formatGates(rendered.gates);
+    process.stdout.write(gates === undefined ? `${rendered.table()}\n` : `${rendered.table()}\n${gates}\n\n`);
+  }
+
+  // Always JSON, whatever went to stdout — a file named by `--out` that
+  // contained a terminal table would be a trap for the pipeline reading it.
+  if (out !== undefined) await writeFile(out, `${rendered.json()}\n`, 'utf8');
+}
+
+/**
+ * Gates from the config, with flags on top.
+ *
+ * The file is where a threshold belongs — it is argued over in review next to
+ * the scenarios it judges. Flags exist so a workflow can tighten one without
+ * editing the repo, not so it can hold the whole policy.
+ */
+function gatesFor(ci: CiGates | undefined, values: Values): CiGates {
+  const failOn = values['fail-on'] as string | undefined;
+
+  return {
+    ...(ci ?? DEFAULT_GATES),
+    ...(failOn !== undefined ? { failOn: parseFailOn(failOn) } : {}),
+    ...override('maxFlaky', parseCount(values['max-flaky'] as string | undefined, '--max-flaky')),
+    ...override('maxOrphans', parseCount(values['max-orphans'] as string | undefined, '--max-orphans')),
+    ...override('maxErrorRate', parseThreshold(values['max-error-rate'] as string | undefined, '--max-error-rate')),
+    ...override('maxRegression', parseThreshold(values['max-regression'] as string | undefined, '--max-regression')),
+    ...override('minScore', parseThreshold(values['min-score'] as string | undefined, '--min-score')),
+  };
+}
+
+function override<K extends string>(key: K, value: number | undefined): Record<K, number> | {} {
+  return value === undefined ? {} : ({ [key]: value } as Record<K, number>);
 }
 
 /** Price the run before spending, using the free token-counting endpoint. */
@@ -410,13 +532,36 @@ function parsePositive(value: string | undefined, flag: string): number | undefi
   return parsed;
 }
 
-function parseThreshold(value: string | undefined): number | undefined {
+function parseThreshold(value: string | undefined, flag: string): number | undefined {
   if (value === undefined) return undefined;
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
-    throw new Error(`--min-score must be between 0 and 1 (got "${value}")`);
+    throw new Error(`${flag} must be between 0 and 1 (got "${value}")`);
   }
   return parsed;
+}
+
+function parseCount(value: string | undefined, flag: string): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${flag} must be a non-negative integer (got "${value}")`);
+  }
+  return parsed;
+}
+
+/**
+ * `--json` stays as an alias for `--format json`, so every M2/M3 invocation and
+ * every script written against one keeps working.
+ */
+function parseFormat(values: Values): Format {
+  const format = values.format as string | undefined;
+  if (format === undefined) return values.json === true ? 'json' : 'table';
+  if (values.json === true && format !== 'json') {
+    throw new Error(`--json and --format ${format} disagree — pass one of them.`);
+  }
+  if (format === 'table' || format === 'json' || format === 'markdown') return format;
+  throw new Error(`--format must be one of: table, json, markdown (got "${format}")`);
 }
 
 function parseAdapter(value: string): SurfaceKind {
@@ -440,9 +585,27 @@ function parsePairs(entries: string[], flag: string): Record<string, string> {
   return out;
 }
 
-try {
-  process.exitCode = await main(process.argv.slice(2));
-} catch (error) {
-  process.stderr.write(`${pc.red('error')} ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 2;
+/**
+ * Only when run as the binary, so `main` can be imported and driven by the
+ * exit-code test. Every thrown error is exit 2, never 1: an exception means we
+ * could not measure, and a build that reports that as a failing eval sends
+ * someone to fix a surface that was never the problem.
+ */
+if (isEntryPoint()) {
+  try {
+    process.exitCode = await main(process.argv.slice(2));
+  } catch (error) {
+    process.stderr.write(`${pc.red('error')} ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = Exit.Unmeasured;
+  }
+}
+
+function isEntryPoint(): boolean {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
 }
