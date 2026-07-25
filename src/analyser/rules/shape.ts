@@ -1,16 +1,17 @@
+import { itemNoun, toolsOf } from '../../surface.js';
 import type { Finding, Rule } from '../../types.js';
 import { maxDepth } from '../schema.js';
-import { countToolTokens, countManifestTokens } from '../tokens.js';
+import { countItemTokens, countSurfaceTokens } from '../tokens.js';
 
 /** Nesting beyond this reliably degrades argument accuracy. */
 export const MAX_REASONABLE_DEPTH = 3;
-/** Manifest budgets, in approximate tokens. */
+/** Resident-context budgets, in approximate tokens. */
 export const TOKEN_BUDGET_WARN = 10_000;
 export const TOKEN_BUDGET_ERROR = 25_000;
-/** A single tool eating more than this share of the manifest is suspicious. */
+/** A single item eating more than this share of the surface is suspicious. */
 export const TOOL_SHARE_WARN = 0.25;
 /**
- * Below this many tools, a large share is arithmetic rather than a finding —
+ * Below this many items, a large share is arithmetic rather than a finding —
  * one tool in three is 33% of the manifest and there is nothing wrong with that.
  */
 export const MIN_TOOLS_FOR_SHARE = 8;
@@ -19,15 +20,16 @@ export const deepSchema: Rule = {
   id: 'deep-schema',
   description: `Input schemas nested deeper than ${MAX_REASONABLE_DEPTH} levels are hard for a model to fill in correctly.`,
   defaultSeverity: 'info',
-  run(manifest) {
+  appliesTo: ['mcp'],
+  run(surface) {
     const findings: Finding[] = [];
-    for (const tool of manifest.tools) {
+    for (const tool of toolsOf(surface)) {
       const depth = maxDepth(tool.inputSchema);
       if (depth <= MAX_REASONABLE_DEPTH) continue;
       findings.push({
         rule: 'deep-schema',
         severity: 'info',
-        tool: tool.name,
+        item: tool.name,
         message: `"${tool.name}" nests its input schema ${depth} levels deep.`,
         detail: { depth },
       });
@@ -36,41 +38,46 @@ export const deepSchema: Rule = {
   },
 };
 
-export const manifestTokenBudget: Rule = {
-  id: 'manifest-token-budget',
-  description: 'The whole manifest is injected into context on every single call.',
+export const tokenBudget: Rule = {
+  id: 'token-budget',
+  description: 'The whole surface is injected into context on every single call.',
   defaultSeverity: 'warn',
-  run(manifest) {
+  // Resident cost is the same problem in both worlds: an MCP manifest and a
+  // skills listing are both paid for on every request, whether or not anything
+  // is selected. For skills this counts routing descriptions only.
+  appliesTo: ['mcp', 'skills'],
+  run(surface) {
     const findings: Finding[] = [];
-    const { total } = countManifestTokens(manifest);
+    const { total } = countSurfaceTokens(surface);
+    const noun = itemNoun(surface);
 
     if (total >= TOKEN_BUDGET_ERROR) {
       findings.push({
-        rule: 'manifest-token-budget',
+        rule: 'token-budget',
         severity: 'error',
-        message: `Manifest costs ~${total.toLocaleString()} tokens per session, before any work happens.`,
+        message: `These ${noun}s cost ~${total.toLocaleString()} tokens per session, before any work happens.`,
         detail: { total, budget: TOKEN_BUDGET_ERROR },
       });
     } else if (total >= TOKEN_BUDGET_WARN) {
       findings.push({
-        rule: 'manifest-token-budget',
+        rule: 'token-budget',
         severity: 'warn',
-        message: `Manifest costs ~${total.toLocaleString()} tokens per session.`,
+        message: `These ${noun}s cost ~${total.toLocaleString()} tokens per session.`,
         detail: { total, budget: TOKEN_BUDGET_WARN },
       });
     }
 
-    if (manifest.tools.length < MIN_TOOLS_FOR_SHARE) return findings;
+    if (surface.items.length < MIN_TOOLS_FOR_SHARE) return findings;
 
-    for (const tool of manifest.tools) {
-      const tokens = countToolTokens(tool);
+    for (const item of surface.items) {
+      const tokens = countItemTokens(item);
       const share = total === 0 ? 0 : tokens / total;
       if (share < TOOL_SHARE_WARN) continue;
       findings.push({
-        rule: 'manifest-token-budget',
+        rule: 'token-budget',
         severity: 'warn',
-        tool: tool.name,
-        message: `"${tool.name}" alone is ${Math.round(share * 100)}% of the manifest (~${tokens.toLocaleString()} tokens).`,
+        item: item.name,
+        message: `"${item.name}" alone is ${Math.round(share * 100)}% of the ${noun} surface (~${tokens.toLocaleString()} tokens).`,
         detail: { tokens, share },
       });
     }

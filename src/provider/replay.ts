@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import type { Manifest, Scenario, TrialResult } from '../types.js';
+import type { Scenario, Surface, TrialResult } from '../types.js';
 import type { Provider } from './index.js';
 
 /**
@@ -8,7 +8,7 @@ import type { Provider } from './index.js';
  * This is the counterpart to `loadManifestFromFile`: it lets the runner,
  * scorer and reporter be built and tested with no API key, no network and no
  * spend. It is also the mechanism M3's mutation testing needs — score a
- * recorded baseline, damage the manifest, and compare.
+ * recorded baseline, damage the surface, and compare.
  *
  * Trials are handed out per scenario in recorded order and then cycle, so a
  * fixture of 5 trials can answer a 20-trial run with the same distribution.
@@ -40,7 +40,7 @@ export class ReplayProvider implements Provider {
     );
   }
 
-  async runTrial(_manifest: Manifest, scenario: Scenario): Promise<TrialResult> {
+  async runTrial(_surface: Surface, scenario: Scenario): Promise<TrialResult> {
     const recorded = this.byScenario.get(scenario.id);
     if (!recorded || recorded.length === 0) {
       throw new Error(`No recorded trials for scenario "${scenario.id}".`);

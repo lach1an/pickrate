@@ -1,4 +1,5 @@
-import type { Finding, Manifest, Rule } from '../../types.js';
+import { toolsOf } from '../../surface.js';
+import type { Finding, Rule } from '../../types.js';
 
 /** Descriptions shorter than this are treated as carrying no real signal. */
 export const THIN_DESCRIPTION_WORDS = 4;
@@ -9,13 +10,14 @@ export const missingToolDescription: Rule = {
   id: 'missing-tool-description',
   description: 'Every tool needs a description — it is the model\'s only guide to what the tool does.',
   defaultSeverity: 'error',
-  run(manifest) {
-    return manifest.tools
+  appliesTo: ['mcp'],
+  run(surface) {
+    return toolsOf(surface)
       .filter((tool) => (tool.description ?? '').trim() === '')
       .map((tool) => ({
         rule: 'missing-tool-description',
         severity: 'error' as const,
-        tool: tool.name,
+        item: tool.name,
         message: `"${tool.name}" has no description. The model has only the name to go on.`,
       }));
   },
@@ -25,9 +27,10 @@ export const thinToolDescription: Rule = {
   id: 'thin-tool-description',
   description: `Descriptions under ${THIN_DESCRIPTION_WORDS} words rarely disambiguate anything.`,
   defaultSeverity: 'warn',
-  run(manifest) {
+  appliesTo: ['mcp'],
+  run(surface) {
     const findings: Finding[] = [];
-    for (const tool of manifest.tools) {
+    for (const tool of toolsOf(surface)) {
       const text = (tool.description ?? '').trim();
       if (text === '') continue; // covered by missing-tool-description
       const words = countWords(text);
@@ -35,7 +38,7 @@ export const thinToolDescription: Rule = {
       findings.push({
         rule: 'thin-tool-description',
         severity: 'warn',
-        tool: tool.name,
+        item: tool.name,
         message: `"${tool.name}" has a ${words}-word description: "${text}".`,
         detail: { words },
       });
@@ -46,13 +49,17 @@ export const thinToolDescription: Rule = {
 
 export const nearDuplicateDescription: Rule = {
   id: 'near-duplicate-description',
-  description: 'Tools whose descriptions overlap heavily are the classic wrong-tool-selected failure.',
+  description: 'Items whose descriptions overlap heavily are the classic wrong-thing-selected failure.',
   defaultSeverity: 'warn',
-  run(manifest) {
+  // Reads only name and description, which every surface item has — so this
+  // one rule needs no narrowing and applies to skills unchanged. Near-duplicate
+  // routing descriptions are the most direct cause of a skill never triggering.
+  appliesTo: ['mcp', 'skills'],
+  run(surface) {
     const findings: Finding[] = [];
-    const profiles = manifest.tools.map((tool) => ({
-      name: tool.name,
-      grams: trigrams(`${tool.name} ${tool.description ?? ''}`),
+    const profiles = surface.items.map((item) => ({
+      name: item.name,
+      grams: trigrams(`${item.name} ${item.description ?? ''}`),
     }));
 
     for (let i = 0; i < profiles.length; i++) {
@@ -64,7 +71,7 @@ export const nearDuplicateDescription: Rule = {
         findings.push({
           rule: 'near-duplicate-description',
           severity: 'warn',
-          tool: a.name,
+          item: a.name,
           message: `"${a.name}" and "${b.name}" describe themselves ${Math.round(score * 100)}% alike — the model may confuse them.`,
           detail: { pair: [a.name, b.name], similarity: score },
         });

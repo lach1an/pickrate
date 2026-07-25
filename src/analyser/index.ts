@@ -1,9 +1,16 @@
-import type { Analysis, Finding, Manifest, Severity } from '../types.js';
+import type { Analysis, Finding, Severity, Surface } from '../types.js';
 import { rules, rulesById } from './rules/index.js';
-import { countManifestTokens } from './tokens.js';
+import { countSurfaceTokens } from './tokens.js';
 
 export { rules, rulesById } from './rules/index.js';
-export { countManifestTokens, countToolTokens, ENCODING } from './tokens.js';
+export {
+  countSurfaceTokens,
+  countItemTokens,
+  countToolTokens,
+  countSkillRoutingTokens,
+  countSkillBodyTokens,
+  ENCODING,
+} from './tokens.js';
 export { walkProperties, maxDepth } from './schema.js';
 
 export interface AnalyseOptions {
@@ -13,27 +20,31 @@ export interface AnalyseOptions {
 
 const SEVERITY_ORDER: Record<Severity, number> = { error: 0, warn: 1, info: 2 };
 
-/** Run every static rule over a manifest. Sub-second, offline, no cost. */
-export function analyse(manifest: Manifest, options: AnalyseOptions = {}): Analysis {
+/** Run every applicable static rule over a surface. Sub-second, offline, no cost. */
+export function analyse(surface: Surface, options: AnalyseOptions = {}): Analysis {
   const disabled = new Set(options.disable ?? []);
   const findings: Finding[] = [];
 
   for (const rule of rules) {
     if (disabled.has(rule.id)) continue;
-    findings.push(...rule.run(manifest));
+    // A rule that cannot say anything about this surface is skipped rather
+    // than run against an empty narrowing — silence and "no findings" should
+    // not be the same thing.
+    if (!rule.appliesTo.includes(surface.kind)) continue;
+    findings.push(...rule.run(surface));
   }
 
   findings.sort(
     (a, b) =>
       SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] ||
       a.rule.localeCompare(b.rule) ||
-      (a.tool ?? '').localeCompare(b.tool ?? ''),
+      (a.item ?? '').localeCompare(b.item ?? ''),
   );
 
   return {
-    source: manifest.source,
-    toolCount: manifest.tools.length,
-    tokens: countManifestTokens(manifest),
+    source: surface.source,
+    itemCount: surface.items.length,
+    tokens: countSurfaceTokens(surface),
     findings,
   };
 }

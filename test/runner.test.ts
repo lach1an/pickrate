@@ -5,7 +5,7 @@ import { loadConfig } from '../src/config/index.js';
 import { loadManifestFromFile } from '../src/connector/index.js';
 import type { Provider } from '../src/provider/index.js';
 import { mapPool, runEval, totalTrials } from '../src/runner/index.js';
-import type { Manifest, Scenario, TrialResult } from '../src/types.js';
+import type { Scenario, Surface, TrialResult } from '../src/types.js';
 
 const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
 
@@ -15,7 +15,7 @@ class SpyProvider implements Provider {
   readonly concurrencyAtStart: number[] = [];
   private inFlight = 0;
 
-  async runTrial(_manifest: Manifest, scenario: Scenario): Promise<TrialResult> {
+  async runTrial(_surface: Surface, scenario: Scenario): Promise<TrialResult> {
     this.inFlight++;
     this.concurrencyAtStart.push(this.inFlight);
     await new Promise((resolve) => setTimeout(resolve, 2));
@@ -60,10 +60,10 @@ describe('runEval', () => {
     // Firing every trial at once means none can read the cache the others are
     // still writing — the whole run then pays full price for the manifest.
     const config = await loadConfig(fixture('pickrate.yaml'));
-    const manifest = await loadManifestFromFile(fixture('git-server.json'));
+    const surface = await loadManifestFromFile(fixture('git-server.json'));
     const provider = new SpyProvider();
 
-    await runEval(config, manifest, provider);
+    await runEval(config, surface, provider);
 
     assert.equal(provider.concurrencyAtStart[0], 1, 'warm-up trial must run alone');
     assert.ok(
@@ -74,10 +74,10 @@ describe('runEval', () => {
 
   it('runs every scenario for its own trial count', async () => {
     const config = await loadConfig(fixture('pickrate.yaml'));
-    const manifest = await loadManifestFromFile(fixture('git-server.json'));
+    const surface = await loadManifestFromFile(fixture('git-server.json'));
     const provider = new SpyProvider();
 
-    const report = await runEval(config, manifest, provider);
+    const report = await runEval(config, surface, provider);
 
     assert.equal(totalTrials(config), 20);
     assert.equal(provider.concurrencyAtStart.length, 20);
@@ -87,10 +87,10 @@ describe('runEval', () => {
 
   it('reports progress for every trial', async () => {
     const config = await loadConfig(fixture('pickrate.yaml'));
-    const manifest = await loadManifestFromFile(fixture('git-server.json'));
+    const surface = await loadManifestFromFile(fixture('git-server.json'));
     const seen: number[] = [];
 
-    await runEval(config, manifest, new SpyProvider(), {
+    await runEval(config, surface, new SpyProvider(), {
       onProgress: ({ completed, total }) => {
         seen.push(completed);
         assert.equal(total, 20);

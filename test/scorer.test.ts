@@ -4,42 +4,42 @@ import { before, describe, it } from 'node:test';
 import { loadConfig } from '../src/config/index.js';
 import { loadManifestFromFile } from '../src/connector/index.js';
 import { ReplayProvider } from '../src/provider/replay.js';
-import { findOrphanTools, matchesSubset, scoreRun, totalUsage } from '../src/scorer/index.js';
-import type { EvalConfig, Manifest, ScenarioScore, TrialResult } from '../src/types.js';
+import { findOrphans, matchesSubset, scoreRun, totalUsage } from '../src/scorer/index.js';
+import type { EvalConfig, ScenarioScore, Surface, TrialResult } from '../src/types.js';
 
 const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
 
 let config: EvalConfig;
-let manifest: Manifest;
+let surface: Surface;
 let trialsByScenario: Map<string, TrialResult[]>;
 let scores: Map<string, ScenarioScore>;
-let orphanTools: string[];
+let orphans: string[];
 
 /** Replay the fixture trials through the provider, exactly as the runner will. */
 before(async () => {
   config = await loadConfig(fixture('pickrate.yaml'));
-  manifest = await loadManifestFromFile(fixture('git-server.json'));
+  surface = await loadManifestFromFile(fixture('git-server.json'));
   const provider = await ReplayProvider.fromFile(fixture('trials/git-server.json'));
 
   trialsByScenario = new Map();
   for (const scenario of config.scenarios) {
     const trials: TrialResult[] = [];
     for (let i = 0; i < (scenario.trials ?? config.defaults.trials); i++) {
-      trials.push(await provider.runTrial(manifest, scenario));
+      trials.push(await provider.runTrial(surface, scenario));
     }
     trialsByScenario.set(scenario.id, trials);
   }
 
   const result = scoreRun({
     config,
-    manifest,
+    surface,
     model: provider.model,
     trialsByScenario,
     startedAt: new Date().toISOString(),
     durationMs: 0,
   });
   scores = new Map(result.scenarios.map((s) => [s.id, s]));
-  orphanTools = result.orphanTools;
+  orphans = result.orphans;
 });
 
 describe('scorer', () => {
@@ -104,12 +104,12 @@ describe('scorer', () => {
     assert.equal(matchesSubset({ name: 'hotfix' }, { name: 'HotFix' }), false);
   });
 
-  it('finds tools no scenario ever selected', () => {
-    assert.deepEqual(orphanTools, ['delete_branch']);
+  it('finds items no scenario ever selected', () => {
+    assert.deepEqual(orphans, ['delete_branch']);
   });
 
-  it('reports orphans against the manifest, not against the scenarios', () => {
-    assert.deepEqual(findOrphanTools(manifest, new Map()), [
+  it('reports orphans against the surface, not against the scenarios', () => {
+    assert.deepEqual(findOrphans(surface, new Map()), [
       'create_branch',
       'delete_branch',
       'list_branches',

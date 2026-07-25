@@ -145,7 +145,7 @@ Per-scenario `threshold` matters: a higher bar for destructive operations than f
 
 | Rule | Default | What it catches |
 |---|---|---|
-| `manifest-token-budget` | warn/error | The whole manifest is injected into context on every call |
+| `token-budget` | warn/error | The whole surface is injected into context on every call |
 | `missing-tool-description` | error | The model has only the name to go on |
 | `thin-tool-description` | warn | Under four words disambiguates nothing |
 | `near-duplicate-description` | warn | The classic wrong-tool-selected failure |
