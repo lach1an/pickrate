@@ -1,0 +1,54 @@
+name: Release
+
+# Publishes to npm on a version tag.
+#
+# Via npm's OIDC **trusted publishing**, not a long-lived NPM_TOKEN secret:
+# there is no credential in this repo to leak, and it yields a provenance
+# attestation. For a tool whose entire pitch is "how much should you trust this
+# report", provenance is not merely hygiene.
+#
+# One-time setup on npmjs.com, under the package's Settings → Trusted publisher:
+# repository `lach1an/pickrate`, workflow `.github/workflows/release.yml`.
+# Until that exists this job fails at the publish step, which is the intended
+# failure — publishing by hand instead would defeat the point.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC trusted publishing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - run: npm ci
+
+      # The full suite before publishing, not after. Among other things it
+      # asserts that cli.ts's VERSION matches package.json's — a published
+      # build that reports a version it is not is nobody's quick debug.
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: The tag must match the version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(node -p "require('./package.json').version")
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$tag" != "$pkg" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $pkg"
+            exit 1
+          fi
+
+      # npm 11.5.1+ performs the OIDC exchange itself; no token is set.
+      - run: npm publish --provenance --access public

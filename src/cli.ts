@@ -47,7 +47,7 @@ import { runEval, totalTrials } from './runner/index.js';
 import type { CiGates, EvalConfig, GateResult, Severity, SurfaceKind } from './types.js';
 
 /** Duplicated from `package.json`; the schema-freeze test asserts they match. */
-export const VERSION = '0.0.0';
+export const VERSION = '0.1.0';
 
 const USAGE = `
 ${pc.bold('pickrate')} — does an agent actually pick your tools and skills correctly?

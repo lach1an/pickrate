@@ -1,6 +1,14 @@
 # M4 — CI-ready: implementation plan
 
-**Status:** agreed, in progress — step 1 next
+**Status:** complete — all five steps landed, shipped as `0.1.0`
+
+Two things moved during the build, both recorded in CLAUDE.md's M4 decisions:
+
+- Open question 1 resolved as recommended: **`run` does not gate on a mean score.** The `thresholds` gate is per-scenario and always on; there is no mean gate to configure.
+- The `target:` input needed a `--target` flag on `run`/`mutate` for the Action's one-config story to hold; `inspect` already took a positional.
+
+Questions 2 (baseline staleness), 3 (`pickrate compare`) and 4 (`maxErrorRate: 0.1`) remain open and still want M5's live runs.
+
 **Date:** 25 July 2026
 **Implements:** [`mcp-eval-spec.md`](mcp-eval-spec.md) §7 (M4)
 **Follows:** M3 (mutator), complete
