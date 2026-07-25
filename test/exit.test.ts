@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -114,6 +114,20 @@ describe('gates from the config file', () => {
 
     assert.equal(code, Exit.Failed);
     assert.deepEqual(ids, ['max-error-rate', 'max-flaky', 'thresholds']);
+  });
+});
+
+describe('the binary runs when it is invoked', () => {
+  it('runs through a symlink, the way npm installs it', async () => {
+    // npm installs the bin as `node_modules/.bin/pickrate → dist/cli.js` and
+    // does not resolve that link into argv[1]. An entry-point check that
+    // compared raw paths would make the published CLI print nothing and exit
+    // 0 — success, having measured nothing.
+    const link = join(mkdtempSync(join(tmpdir(), 'pickrate-bin-')), 'pickrate');
+    symlinkSync(CLI, link);
+
+    const { stdout } = await run(process.execPath, ['--import', 'tsx', link, '--version']);
+    assert.match(stdout.trim(), /^\d+\.\d+\.\d+$/);
   });
 });
 

@@ -1,0 +1,207 @@
+name: pickrate
+description: Does an agent actually pick your MCP tools and Agent Skills correctly? Surface linting and selection evals.
+author: lach1an
+branding:
+  icon: crosshair
+  color: purple
+
+# Composite rather than Docker: no image build on every run, and the CLI is
+# already on npm. pickrate itself never talks to GitHub (see plans/ci-plan.md
+# §1.4) — posting comments, uploading artifacts and writing step summaries are
+# this file's job, which is what keeps the whole CI surface testable offline
+# and leaves no GitHub token anywhere in src/.
+
+inputs:
+  command:
+    description: inspect, run or mutate.
+    default: inspect
+  config:
+    description: >-
+      Path to pickrate.yaml. Required for run and mutate; inspect reads
+      target: and the ci: gate block from it when no target is given.
+    required: false
+  target:
+    description: Overrides config.target — a server command, URL, manifest or skills directory.
+    required: false
+  adapter:
+    description: Force mcp or skills, skipping target detection.
+    required: false
+  version:
+    description: >-
+      npm version range for the CLI, or "local" to build the checked-out
+      repository instead. "local" exists so this Action can be exercised in its
+      own repo: an Action only tested by its consumers is not tested.
+    default: latest
+  anthropic-api-key:
+    description: >-
+      Needed by run and mutate only. Omit it for inspect — a zero-credential
+      first run is the point of inspect, not an oversight.
+    required: false
+  baseline:
+    description: Path to a stored JSON report to compare this run against.
+    required: false
+  args:
+    description: Extra CLI flags, appended verbatim (e.g. "--trials 10 --max-flaky 0").
+    required: false
+  comment:
+    description: Post or update a single PR comment with the report.
+    default: 'false'
+  summary:
+    description: Write the report to $GITHUB_STEP_SUMMARY.
+    default: 'true'
+  artifact:
+    description: Upload the JSON report as a workflow artifact.
+    default: 'true'
+  report-path:
+    description: Where to write the JSON report.
+    default: pickrate-report.json
+
+outputs:
+  exit-code:
+    description: 0 measured and gates passed, 1 measured and bad, 2 could not measure, 130 cancelled.
+    value: ${{ steps.pickrate.outputs.exit-code }}
+  score:
+    description: >-
+      mutate's mutation score, or run's *worst* scenario score. The worst
+      rather than the mean, for the same reason the regression gate uses it: a
+      mean hides one scenario collapsing behind five that improved. Empty for
+      inspect, which measures cost and lint findings rather than a rate.
+    value: ${{ steps.pickrate.outputs.score }}
+  report-path:
+    description: Path to the JSON report.
+    value: ${{ steps.pickrate.outputs.report-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Build the checked-out pickrate
+      if: inputs.version == 'local'
+      shell: bash
+      run: |
+        npm ci
+        npm run build
+        echo "PICKRATE_BIN=node $GITHUB_ACTION_PATH/dist/cli.js" >> "$GITHUB_ENV"
+      working-directory: ${{ github.action_path }}
+
+    - name: Resolve the published pickrate
+      if: inputs.version != 'local'
+      shell: bash
+      run: echo "PICKRATE_BIN=npx --yes pickrate@${{ inputs.version }}" >> "$GITHUB_ENV"
+
+    - name: Run pickrate
+      id: pickrate
+      shell: bash
+      env:
+        # Every input reaches bash as an environment variable rather than as
+        # `${{ }}` interpolated into the script, so a target or a config path
+        # cannot become shell. The key is an env var for a second reason: an
+        # argument lands in the command trace, and no report field ever
+        # carries a credential.
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        COMMAND: ${{ inputs.command }}
+        CONFIG: ${{ inputs.config }}
+        TARGET: ${{ inputs.target }}
+        ADAPTER: ${{ inputs.adapter }}
+        BASELINE: ${{ inputs.baseline }}
+        EXTRA_ARGS: ${{ inputs.args }}
+        REPORT_PATH: ${{ inputs.report-path }}
+      run: |
+        set -o pipefail
+        args=()
+
+        # inspect takes its target positionally and can read the rest from
+        # --config. run and mutate take the config file positionally, and
+        # override its target: with --target.
+        if [ "$COMMAND" = "inspect" ]; then
+          if [ -n "$TARGET" ]; then args+=("$TARGET"); fi
+          if [ -n "$CONFIG" ]; then args+=(--config "$CONFIG"); fi
+          if [ -z "$TARGET" ] && [ -z "$CONFIG" ]; then
+            echo "::error::inspect needs a target or a config."
+            exit 2
+          fi
+        else
+          if [ -z "$CONFIG" ]; then
+            echo "::error::$COMMAND needs a config."
+            exit 2
+          fi
+          args+=("$CONFIG")
+          if [ -n "$TARGET" ]; then args+=(--target "$TARGET"); fi
+        fi
+
+        if [ -n "$ADAPTER" ]; then args+=(--adapter "$ADAPTER"); fi
+        if [ -n "$BASELINE" ]; then args+=(--baseline "$BASELINE"); fi
+        if [ -n "$EXTRA_ARGS" ]; then args+=($EXTRA_ARGS); fi
+
+        # One invocation, two artifacts. --format markdown goes to the step
+        # summary and --out writes JSON for the upload; running it twice to get
+        # both formats would double the API bill for no new measurement.
+        set +e
+        $PICKRATE_BIN "$COMMAND" "${args[@]}" --yes --format markdown \
+          --out "$REPORT_PATH" | tee pickrate-report.md
+        code=${PIPESTATUS[0]}
+        set -e
+
+        {
+          echo "exit-code=$code"
+          echo "report-path=$REPORT_PATH"
+          echo "score=$(node -e '
+            const fs = require("node:fs");
+            try {
+              const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+              if (report.command === "mutate") process.stdout.write(String(report.summary.mutationScore));
+              else if (report.command === "run") {
+                process.stdout.write(String(Math.min(...report.scenarios.map((s) => s.score))));
+              }
+            } catch {}
+          ' "$REPORT_PATH")"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Write the step summary
+      if: inputs.summary == 'true' && always()
+      shell: bash
+      run: cat pickrate-report.md >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Comment on the pull request
+      if: inputs.comment == 'true' && github.event_name == 'pull_request' && always()
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # Find by marker and edit, so a 30-commit PR carries one comment that
+        # gets updated rather than thirty that get scrolled past.
+        marker='<!-- pickrate-report -->'
+        existing=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.number }}/comments" \
+          --jq "map(select(.body | contains(\"$marker\"))) | .[0].id // empty")
+
+        if [ -n "$existing" ]; then
+          gh api --method PATCH "repos/${{ github.repository }}/issues/comments/$existing" \
+            -F body=@pickrate-report.md >/dev/null
+        else
+          gh pr comment "${{ github.event.number }}" --body-file pickrate-report.md
+        fi
+
+    - name: Upload the JSON report
+      if: inputs.artifact == 'true' && always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pickrate-report
+        path: ${{ inputs.report-path }}
+        if-no-files-found: warn
+
+    - name: Exit with pickrate's code
+      shell: bash
+      run: |
+        code="${{ steps.pickrate.outputs.exit-code }}"
+        # 2 is "could not measure", not "the surface is bad". The distinction is
+        # the whole point of the exit table, so say which one happened.
+        if [ "$code" = "2" ]; then
+          echo "::error::pickrate could not measure — see the gate block in the summary."
+        elif [ "$code" = "1" ]; then
+          echo "::error::pickrate measured, and a gate failed."
+        fi
+        exit "$code"

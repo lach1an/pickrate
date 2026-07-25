@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import pc from 'picocolors';
 import { analyse } from './analyser/index.js';
@@ -74,6 +75,7 @@ ${pc.bold('run options')}
   --yes                   skip the cost confirmation
   --model <id>            override defaults.model
   --trials <n>            override defaults.trials
+  --target <t>            override the config's target
   --replay <file>         replay recorded trials instead of calling a model
   --presentation <mode>   skills only: skill-tool (default) or pseudo-tool
   --baseline <file>       compare against a stored JSON report
@@ -122,6 +124,7 @@ export async function main(argv: string[]): Promise<ExitCode> {
       format: { type: 'string' },
       out: { type: 'string' },
       config: { type: 'string' },
+      target: { type: 'string' },
       'fail-on': { type: 'string' },
       disable: { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
@@ -527,6 +530,8 @@ function renderMutationProgress() {
 function applyOverrides(config: EvalConfig, values: Values): EvalConfig {
   const model = values.model as string | undefined;
   const trials = values.trials as string | undefined;
+  const target = values.target as string | undefined;
+  if (target !== undefined) config = { ...config, target };
   if (model === undefined && trials === undefined) return config;
 
   const parsedTrials = trials === undefined ? undefined : Number(trials);
@@ -626,11 +631,19 @@ if (isEntryPoint()) {
   }
 }
 
+/**
+ * Through symlinks, deliberately.
+ *
+ * npm installs the bin as `node_modules/.bin/pickrate → ../pickrate/dist/cli.js`
+ * and does *not* resolve that link into `argv[1]`, so comparing the raw paths
+ * makes the published binary do nothing at all and exit 0 — a CLI that reports
+ * success having measured nothing, which is the worst outcome this codebase has.
+ */
 function isEntryPoint(): boolean {
   const entry = process.argv[1];
   if (entry === undefined) return false;
   try {
-    return import.meta.url === pathToFileURL(entry).href;
+    return realpathSync(entry) === fileURLToPath(import.meta.url);
   } catch {
     return false;
   }
