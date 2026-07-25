@@ -278,3 +278,86 @@ export interface EvalReport {
   startedAt: string;
   durationMs: number;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Mutation                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The clean surface, measured twice.
+ *
+ * Both runs are kept because they *are* the noise measurement — spec §6's
+ * variance baseline. A regression smaller than the gap between two identical
+ * runs means nothing, and a mutation score computed without that gap is a
+ * count of coin flips.
+ */
+export interface MutationBaseline {
+  /** The two clean runs, in order. */
+  runs: EvalReport[];
+  /** Mean scenario score, pooled across both runs. */
+  score: number;
+  /** What a drop must clear to count: `observedNoise`, floored at `1/trials`. */
+  noise: number;
+  /**
+   * The raw gap between the two runs, before flooring.
+   *
+   * Reported separately so a suspiciously quiet baseline is visible rather
+   * than hidden behind the floor: two runs that agree exactly usually mean a
+   * deterministic provider, not a stable server.
+   */
+  observedNoise: number;
+}
+
+/** One injected defect and what it did to the score. */
+export interface MutantRecord {
+  id: string;
+  operator: string;
+  /** Items damaged. Empty for surface-wide operators like decoy injection. */
+  targets: string[];
+  describe: string;
+  /** Mean scenario score under this mutant. */
+  score: number;
+  /** `baseline.score - score`. Positive means the surface got worse. */
+  delta: number;
+  /**
+   * Did the harness notice? `delta > baseline.noise`.
+   *
+   * A mutant that is *not* killed is inconclusive, never a pass: it means
+   * either the harness is insensitive or no scenario exercises what was
+   * damaged, and `targets` is what tells the two apart.
+   */
+  killed: boolean;
+  /**
+   * True when the only scenarios that moved were restraint checks.
+   *
+   * Damage makes a model less willing to call anything, which *raises*
+   * restraint scores and can hide a selection collapse inside the mean. A flag
+   * rather than a second threshold — it is a diagnostic, not a verdict.
+   */
+  restraintOnly: boolean;
+  perScenario: Array<{ id: string; baseline: number; mutant: number; delta: number }>;
+  /** The full run, kept for its confusion pairs and orphans. */
+  report: EvalReport;
+}
+
+export interface MutationReport {
+  source: SurfaceSource;
+  model: string;
+  presentation?: string;
+  /** Trials per scenario, per run. */
+  trials: number;
+  baseline: MutationBaseline;
+  mutants: MutantRecord[];
+  /**
+   * Killed ÷ total. How much of the report you should believe.
+   *
+   * Comparable only against other runs on the *same adapter*: blanking one
+   * description out of eight skills and out of forty tools are not the same
+   * operation, and averaging the two would invent a number (spec §11.7).
+   */
+  mutationScore: number;
+  usage: TrialUsage;
+  costUsd?: number;
+  startedAt: string;
+  durationMs: number;
+}

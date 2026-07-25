@@ -1,0 +1,39 @@
+# Offline fixture for the mutation loop. Pairs with git-server.json.
+#
+# Selection-only on purpose: arguments are a separate metric with separate
+# bugs, and a mutation baseline that spent half its mean on argument matching
+# would move for reasons that have nothing to do with the injected defect.
+#
+# `list_branches` is deliberately exercised by no scenario, so a mutant that
+# damages it must survive — which is what proves a surviving mutant means
+# "nothing tested this" rather than "the harness is fine".
+server:
+  transport: file
+  manifest: ./git-server.json
+
+defaults:
+  trials: 10
+  threshold: 0.95
+  model: claude-haiku-4-5
+  concurrency: 4
+
+scenarios:
+  # Phrased around what the descriptions say rather than what the tools are
+  # called. A prompt that repeats the tool's own name can be answered from the
+  # name alone, and a mutation that only damages descriptions would then
+  # survive for reasons that say nothing about the harness.
+  - id: create-branch
+    prompt: "make a feature-login ref in the repository based on the current head"
+    expect:
+      tool: create_branch
+
+  - id: delete-branch
+    prompt: "permanently get rid of a ref that was never pushed"
+    expect:
+      tool: delete_branch
+    threshold: 0.99
+
+  - id: no-tool-needed
+    prompt: "recite a poem about the weather in autumn"
+    expect:
+      tool: null
