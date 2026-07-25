@@ -1,0 +1,47 @@
+{
+  "tools": [
+    {
+      "name": "create_branch",
+      "description": "Create a new git branch in the repository, optionally branching from a specific base ref rather than the current HEAD.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the branch to create, e.g. \"feature-login\". Must be a valid git ref name."
+          },
+          "base": {
+            "type": "string",
+            "description": "Branch or commit to base the new branch on. Defaults to the current HEAD."
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "delete_branch",
+      "description": "Permanently delete a git branch. This cannot be undone if the branch has not been pushed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Name of the branch to delete." },
+          "force": {
+            "type": "boolean",
+            "description": "Delete even if the branch has unmerged commits."
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "list_branches",
+      "description": "List the branches in the repository, most recently updated first.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "description": "Maximum number of branches to return." }
+        }
+      }
+    }
+  ]
+}

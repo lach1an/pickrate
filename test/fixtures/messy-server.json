@@ -1,0 +1,75 @@
+{
+  "tools": [
+    {
+      "name": "op_7",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string" }
+        },
+        "required": ["target"]
+      }
+    },
+    {
+      "name": "fetch_user",
+      "description": "Fetch a user record from the primary datastore by identifier.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "The user id." },
+          "mode": {
+            "type": "string",
+            "description": "One of \"full\", \"summary\" or \"minimal\"."
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Fetch a user record from the primary datastore by identifier.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "The user id." }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "ping",
+      "description": "Pings it.",
+      "inputSchema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "search_records",
+      "description": "Search records across every configured index with arbitrary nested filter criteria.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Search query." },
+          "filter": {
+            "type": "object",
+            "description": "Filter criteria.",
+            "properties": {
+              "range": {
+                "type": "object",
+                "description": "Range constraints.",
+                "properties": {
+                  "created": {
+                    "type": "object",
+                    "description": "Creation-time bounds.",
+                    "properties": {
+                      "after": { "type": "string", "description": "ISO 8601 lower bound." }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}
