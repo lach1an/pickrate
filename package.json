@@ -1,7 +1,7 @@
 {
   "name": "pickrate",
   "version": "0.0.0",
-  "description": "Does an agent actually use your MCP server correctly? Zero-config manifest linting and tool-selection evals.",
+  "description": "Does an agent actually pick your MCP tools and Agent Skills correctly? Zero-config surface linting and selection evals.",
   "type": "module",
   "license": "MIT",
   "bin": {
@@ -30,7 +30,9 @@
     "eval",
     "llm",
     "agent",
-    "tools"
+    "tools",
+    "agent-skills",
+    "claude"
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

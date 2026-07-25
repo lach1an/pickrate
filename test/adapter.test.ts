@@ -14,10 +14,11 @@ describe('adapter registry', () => {
     assert.equal(surface.items.length, 3);
   });
 
-  it('says so plainly when an adapter does not exist yet', () => {
-    // parseTarget can already resolve a skills target, so this must be a
-    // straight answer rather than the MCP adapter quietly having a go.
-    assert.throws(() => adapterFor('skills'), /skills adapter is not implemented/);
+  it('has an adapter for every surface kind', () => {
+    // Each must be its own: routing a skills directory into the MCP adapter
+    // would try to run the directory as a shell command.
+    assert.equal(adapterFor('mcp').id, 'mcp');
+    assert.equal(adapterFor('skills').id, 'skills');
   });
 });
 

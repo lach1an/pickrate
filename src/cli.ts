@@ -18,7 +18,7 @@ import type { EvalConfig, Severity, SurfaceKind } from './types.js';
 const VERSION = '0.0.0';
 
 const USAGE = `
-${pc.bold('pickrate')} — does an agent actually use your MCP server correctly?
+${pc.bold('pickrate')} — does an agent actually pick your tools and skills correctly?
 
 ${pc.bold('Usage')}
   pickrate inspect <target> [options]     static analysis — no API key, no cost

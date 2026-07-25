@@ -27,6 +27,7 @@ export {
   type Target,
 } from './adapters/index.js';
 export { mcpAdapter, loadManifest, loadManifestFromFile } from './adapters/mcp/index.js';
+export { skillsAdapter, loadSkills, loadSkillFile } from './adapters/skills/index.js';
 export { loadConfig, parseConfig, ConfigError, DEFAULTS, trialsFor, thresholdFor } from './config/index.js';
 export {
   costOf,

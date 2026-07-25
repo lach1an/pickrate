@@ -25,10 +25,16 @@ export function countSurfaceTokens(surface: Surface): TokenReport {
     .sort((a, b) => b.tokens - a.tokens);
 
   const total = perItem.reduce((sum, t) => sum + t.tokens, 0);
+  const bodies = surface.items
+    .filter((item): item is SkillDef => item.kind === 'skill')
+    .reduce((sum, skill) => sum + countSkillBodyTokens(skill), 0);
 
   return {
     total,
     perItem: perItem.map((t) => ({ ...t, share: total === 0 ? 0 : t.tokens / total })),
+    // Reported for skills even when zero: "your bodies cost nothing extra" and
+    // "we did not measure your bodies" are different statements.
+    ...(surface.kind === 'skills' ? { deferred: bodies } : {}),
     encoding: ENCODING,
     approximate: true,
   };

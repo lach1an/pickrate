@@ -6,14 +6,14 @@ Full spec: [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md), plus [`plans/skil
 
 **M1 (analyser) and M2 (runner + scorer) — complete.** `pickrate inspect <target>` reports token cost and lint findings; `pickrate run <config.yaml>` runs scenarios × trials against a model and reports pass rates, confusion pairs, orphans and flakiness.
 
-**Adapter split — steps 1–3 of 6 done.** The core is generic over a `Surface` (`SurfaceItem = ToolDef | SkillDef`) and runs through an `Adapter` (`load` + `present`), with providers taking a `Presentation` rather than a `Surface` and the scorer projecting raw calls onto selections. MCP is still the only adapter: `parseTarget` already routes a skills directory, and `adapterFor('skills')` throws until step 4. Next is step 4, the skills loader, fixtures and rules. M3 (mutator) and M4 (CI) are not started — and the mutator must land *after* the adapter work, or its operators get written twice.
+**Adapter split — steps 1–4 of 6 done.** The core is generic over a `Surface` (`SurfaceItem = ToolDef | SkillDef`) and runs through an `Adapter` (`load` + `present`), with providers taking a `Presentation` rather than a `Surface` and the scorer projecting raw calls onto selections. Both adapters load: `pickrate inspect ./.claude/skills` works, with five skills rules and routing-vs-body token cost. `skillsAdapter.present` throws until step 5, so `run` on a skills target says so plainly. Next is step 5, the skills presenter (`skill-tool` default, `pseudo-tool` control) plus `test/fixtures/skills-eval.yaml` and `trials/skills.json`, which are deferred to it because they cannot be exercised without a presenter. M3 (mutator) and M4 (CI) are not started — and the mutator must land *after* the adapter work, or its operators get written twice.
 
 ## Invariants
 
 These are load-bearing, not preferences:
 
 1. **`inspect` never makes a model call and never requires an API key.** The zero-credential first run is the distribution strategy, not a nicety. Analyser rules are pure: `Surface` in, `Finding[]` out.
-2. **Only `src/adapters/mcp/` imports `@modelcontextprotocol/sdk`; only `src/provider/` imports `@anthropic-ai/sdk`.** Everything else consumes `Surface` and `TrialResult` from `src/types.ts`. The MCP spec finalises `2026-07-28` (stateless, no `initialize`, no `Mcp-Session-Id`, new `Mcp-Method`/`Mcp-Name` routing headers) and the SDKs will churn; the model is a swappable part of the measurement. Contain both.
+2. **Only `src/adapters/mcp/` imports `@modelcontextprotocol/sdk`; only `src/provider/` imports `@anthropic-ai/sdk`; `src/adapters/skills/` imports `node:fs` and `yaml` and nothing else.** Everything else consumes `Surface` and `TrialResult` from `src/types.ts`. The MCP spec finalises `2026-07-28` (stateless, no `initialize`, no `Mcp-Session-Id`, new `Mcp-Method`/`Mcp-Name` routing headers) and the SDKs will churn; the model is a swappable part of the measurement. Contain both.
    - Adapters emit provider-neutral `ToolDeclaration`s and system text via `present()`; the provider converts. An adapter that reaches for an Anthropic type has broken the seam in both directions.
    - `src/adapters/contract.ts` holds the interfaces, `index.ts` holds the registry. They are separate files because the registry imports every adapter and every adapter needs the interfaces — one module is a cycle that typechecks and then throws at runtime.
    - A `Presentation.systemSuffix` sits inside the cached prefix and **must** be byte-stable across trials. Deterministic iteration only: no `Set` ordering, no absolute paths, no timestamps. The only symptom of getting this wrong is a bill ~10× the estimate.
@@ -48,6 +48,7 @@ Current SDK (`1.29.0`) still negotiates protocol `2025-11-25` and still does the
 Two kinds, both so components can be developed with no server and no API spend:
 
 - `test/fixtures/*.json` — captured `tools/list` responses, read by `loadManifestFromFile`. `git-server.json` is deliberately clean (a test asserts zero warnings); `messy-server.json` deliberately trips every analyser rule.
+- `test/fixtures/skills/{clean,messy}/*/SKILL.md` — the same pair for skills, same contract: `clean` asserts zero findings, `messy` trips all five skills rules plus the shared `near-duplicate-description` and `token-budget`. `messy/broken` and `messy/no-frontmatter` exist to prove a bad file is a finding, not a crash — the other six skills load around them.
 - `test/fixtures/trials/*.json` — recorded `TrialResult[]`, replayed by `ReplayProvider`. `git-server.json` covers a clean scenario, a confusion pair, a restraint miss, an argument mismatch and an errored trial. `test/fixtures/pickrate.yaml` pairs with both.
 
 Together they run the whole eval pipeline offline:
@@ -63,5 +64,6 @@ They are also the seed corpus for M3's mutation testing — a mutation run score
 - Rules live in `src/analyser/rules/`, grouped by theme, registered in `rules/index.ts`. Thresholds are exported named constants, not inline literals.
 - Findings anchor to `item` (a tool or skill name) and a schema `path` where they can. `detail` is for `--json` consumers only.
 - Every rule declares `appliesTo: SurfaceKind[]`. A rule that cannot say anything about a surface is skipped, not run against an empty narrowing — silence and "no findings" must not be the same thing. Narrow with `toolsOf`/`skillsOf` from `src/surface.ts`, never a cast.
-- Token counts are *resident* cost. For skills that means routing descriptions only; bodies are not resident until the skill triggers and are never summed into the total.
+- Token counts are *resident* cost. For skills that means routing descriptions only; bodies go in `TokenReport.deferred`, are reported on their own line below the headline, and are never summed into the total. `deferred` is set for every skills surface even at zero — "your bodies cost nothing" and "we did not measure them" are different statements.
+- A malformed skill loads with `SkillDef.error` set rather than throwing. One bad file in a set of thirty must not take down the run, and an unreachable skill is itself the finding. Rules that would pile on (`missing-skill-description`) skip items with an error, so the actual cause stays legible.
 - The JSON report shape is versioned (`SCHEMA_VERSION`, now 2); M4's CI integration will pin on it.

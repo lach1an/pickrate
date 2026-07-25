@@ -48,6 +48,14 @@ export interface SkillDef extends Selectable {
    */
   body: string;
   frontmatter: Record<string, unknown>;
+  /**
+   * Why the frontmatter could not be read, when it could not be.
+   *
+   * A broken skill is loaded rather than thrown: one bad file in a set of
+   * thirty must not take down the run, and "this one is unparseable" is itself
+   * a finding worth reporting — it is a skill the model can never select.
+   */
+  error?: string;
 }
 
 export type SurfaceItem = ToolDef | SkillDef;
@@ -99,6 +107,15 @@ export interface TokenReport {
   total: number;
   /** Per-item cost, descending. */
   perItem: Array<{ name: string; tokens: number; share: number }>;
+  /**
+   * Tokens paid only when an item actually triggers — skills' bodies.
+   *
+   * Never part of `total`, and never shown as the headline. Confusing the two
+   * is precisely what progressive disclosure exists to avoid: a 40k-token
+   * skill body costs nothing until it fires, while 40k of routing description
+   * is on every request whether it fires or not.
+   */
+  deferred?: number;
   /** Which tokeniser produced these numbers — always state it in the report. */
   encoding: string;
   approximate: true;

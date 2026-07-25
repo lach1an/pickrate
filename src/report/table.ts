@@ -30,6 +30,11 @@ export function formatAnalysis(analysis: Analysis): string {
   out.push(
     pc.dim(`  context   ~${tokens.total.toLocaleString()} tokens per session (${tokens.encoding}, approximate)`),
   );
+  if (tokens.deferred !== undefined) {
+    // Deliberately below the resident figure and labelled with its condition.
+    // This number is large and harmless; the one above it is small and is not.
+    out.push(pc.dim(`  bodies    ~${tokens.deferred.toLocaleString()} tokens, paid only when a skill triggers`));
+  }
   out.push('');
 
   out.push(formatFindings(findings));

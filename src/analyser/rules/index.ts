@@ -2,6 +2,13 @@ import type { Rule } from '../../types.js';
 import { missingToolDescription, nearDuplicateDescription, thinToolDescription } from './descriptions.js';
 import { enumCandidate, missingParamDescription } from './parameters.js';
 import { deepSchema, tokenBudget } from './shape.js';
+import {
+  missingSkillDescription,
+  skillDescriptionLength,
+  skillDescriptionNoTriggers,
+  thinSkillDescription,
+  unparseableSkill,
+} from './skills.js';
 
 /**
  * Every static check, in report order.
@@ -12,9 +19,14 @@ import { deepSchema, tokenBudget } from './shape.js';
  */
 export const rules: Rule[] = [
   tokenBudget,
+  unparseableSkill,
   missingToolDescription,
+  missingSkillDescription,
+  skillDescriptionLength,
   thinToolDescription,
+  thinSkillDescription,
   nearDuplicateDescription,
+  skillDescriptionNoTriggers,
   missingParamDescription,
   enumCandidate,
   deepSchema,
@@ -25,3 +37,4 @@ export const rulesById = new Map(rules.map((rule) => [rule.id, rule]));
 export * from './descriptions.js';
 export * from './parameters.js';
 export * from './shape.js';
+export * from './skills.js';

@@ -6,7 +6,9 @@ A tool manifest is a prompt. Names, descriptions and schemas are the entire inte
 
 `pickrate` measures that.
 
-> Status: **M2 complete.** `inspect` (static analysis) and `run` (tool-selection eval) both work. The mutator is not built yet — see [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md).
+The same question applies to Agent Skills, for the same reason: a skill is selected from a one-line description too. `inspect` covers both surfaces today; `run` is MCP-only until the skills presenter lands.
+
+> Status: **M2 complete**, adapter split 4 of 6 steps in. `inspect` (static analysis) works on MCP servers and skills directories; `run` (selection eval) works on MCP servers. The mutator is not built yet — see [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md) and [`plans/skills-adapter-plan.md`](plans/skills-adapter-plan.md).
 
 ## Quick start
 
@@ -41,11 +43,14 @@ pickrate inspect  npx -y @modelcontextprotocol/server-filesystem /tmp
 
 ## Targets
 
-| Target | Transport |
+| Target | Read as |
 |---|---|
-| `"node ./build/index.js"` | stdio subprocess — quote the whole command |
-| `https://api.example.com/mcp` | streamable HTTP |
+| `"node ./build/index.js"` | MCP over a stdio subprocess — quote the whole command |
+| `https://api.example.com/mcp` | MCP over streamable HTTP |
 | `./manifest.json` | a captured `tools/list` response — analyse with no server running |
+| `./.claude/skills` | a directory of `SKILL.md` files |
+
+Directories are ambiguous — an MCP server project is a directory too — so a directory target is probed for a `SKILL.md`, in itself, one level down, or under a conventional `.claude/skills`. `--adapter mcp\|skills` settles it by hand.
 
 ## Options
 
@@ -143,22 +148,30 @@ Per-scenario `threshold` matters: a higher bar for destructive operations than f
 
 ## Rules
 
-| Rule | Default | What it catches |
-|---|---|---|
-| `token-budget` | warn/error | The whole surface is injected into context on every call |
-| `missing-tool-description` | error | The model has only the name to go on |
-| `thin-tool-description` | warn | Under four words disambiguates nothing |
-| `near-duplicate-description` | warn | The classic wrong-tool-selected failure |
-| `missing-param-description` | warn | Where the model invents formats |
-| `enum-candidate` | info | Free-text param whose description lists its valid values |
-| `deep-schema` | info | Nesting the model will fill in wrong |
+| Rule | Surface | Default | What it catches |
+|---|---|---|---|
+| `token-budget` | both | warn/error | The whole surface is injected into context on every call |
+| `near-duplicate-description` | both | warn | The classic wrong-thing-selected failure |
+| `missing-tool-description` | mcp | error | The model has only the name to go on |
+| `thin-tool-description` | mcp | warn | Under four words disambiguates nothing |
+| `missing-param-description` | mcp | warn | Where the model invents formats |
+| `enum-candidate` | mcp | info | Free-text param whose description lists its valid values |
+| `deep-schema` | mcp | info | Nesting the model will fill in wrong |
+| `unparseable-skill` | skills | error | Frontmatter that will not parse — the skill can never be selected |
+| `missing-skill-description` | skills | error | Resident in every request, selectable in none |
+| `skill-description-length` | skills | error | Past the hard 1024-character limit, the loader rejects the skill outright |
+| `thin-skill-description` | skills | warn | Under four words disambiguates nothing |
+| `skill-description-no-triggers` | skills | info | Says what the skill *is*, never when to use it |
 
-Rules are pure functions — manifest in, findings out. No network, no model. Keep it that way.
+Rules are pure functions — surface in, findings out. No network, no model. Keep it that way. Each declares the surfaces it applies to, and one that has nothing to say about a surface is skipped rather than run against an empty list: silence and "no findings" must not read the same.
+
+For skills, the headline token figure is **routing cost only** — the name and description resident in every request. Bodies are reported on their own line, because they cost nothing until the skill triggers, and conflating the two hides the thing progressive disclosure exists to give you.
 
 ## Development
 
 ```bash
 npm run dev -- inspect ./test/fixtures/messy-server.json   # run from source
+npm run dev -- inspect ./test/fixtures/skills/messy        # the skills equivalent
 npm test                                                   # node:test, offline
 npm run typecheck
 npm run build
@@ -168,13 +181,15 @@ npm run dev -- run test/fixtures/pickrate.yaml \
   --replay test/fixtures/trials/git-server.json
 ```
 
-Fixtures in `test/fixtures/` let every component be developed with no server running and no API spend — captured `tools/list` responses for the analyser, and recorded trials for the scorer. They're also the seed corpus for the M3 mutator.
+Fixtures in `test/fixtures/` let every component be developed with no server running and no API spend — captured `tools/list` responses and `SKILL.md` trees for the analyser, recorded trials for the scorer. Each surface has a clean fixture (a test asserts it produces zero findings) and a messy one that trips every rule. They're also the seed corpus for the M3 mutator.
 
 ## Layout
 
 ```
 src/
-  connector/   speaks MCP — the ONLY place that imports the MCP SDK
+  adapters/    target → surface → presentation
+    mcp/       speaks MCP — the ONLY place that imports the MCP SDK
+    skills/    reads SKILL.md — node:fs and yaml, nothing else
   analyser/    static rules + token counting (M1)
   config/      pickrate.yaml parsing and validation
   provider/    asks a model — the ONLY place that imports a model SDK
@@ -184,7 +199,7 @@ src/
   types.ts     the domain model everything else shares
 ```
 
-Two seams, isolated hard on purpose. The **connector** because the MCP spec finalises `2026-07-28` (stateless, no handshake, new routing headers) and the SDKs will churn for a couple of quarters. The **provider** because the model is a swappable part of the measurement, and because everything downstream of it must stay testable with no API key.
+Two seams, isolated hard on purpose. The **adapters** because the MCP spec finalises `2026-07-28` (stateless, no handshake, new routing headers) and the SDKs will churn for a couple of quarters. The **provider** because the model is a swappable part of the measurement, and because everything downstream of it must stay testable with no API key.
 
 ## Licence
 
