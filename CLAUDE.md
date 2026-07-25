@@ -1,6 +1,6 @@
 # pickrate — working notes
 
-Full spec: [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md), plus [`plans/skills-adapter-plan.md`](plans/skills-adapter-plan.md) for the MCP/skills adapter split. Read them before making design decisions; they settle most of them.
+Full spec: [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md), plus [`plans/skills-adapter-plan.md`](plans/skills-adapter-plan.md) for the MCP/skills adapter split and [`plans/ci-plan.md`](plans/ci-plan.md) for M4. Read them before making design decisions; they settle most of them.
 
 ## Current state
 
@@ -8,7 +8,11 @@ Full spec: [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md), plus [`plans/skil
 
 **Adapter split — complete (6 of 6).** The core is generic over a `Surface` (`SurfaceItem = ToolDef | SkillDef`) and runs through an `Adapter` (`load` + `present`), with providers taking a `Presentation` and the scorer projecting raw calls onto selections. `inspect` and `run` both work on MCP servers and skills directories, with offline fixtures for each.
 
-**M3 (mutator) — complete.** `pickrate mutate <config.yaml>` measures the clean surface twice for a noise floor, then runs one eval per injected defect and reports a mutation score. Three operators (`blank-description`, `swap-descriptions`, `inject-decoys`), all applying to both adapters. M4 (CI) is next.
+**M3 (mutator) — complete.** `pickrate mutate <config.yaml>` measures the clean surface twice for a noise floor, then runs one eval per injected defect and reports a mutation score. Three operators (`blank-description`, `swap-descriptions`, `inject-decoys`), all applying to both adapters.
+
+**M4 (CI) — in progress.** Plan and decisions in [`plans/ci-plan.md`](plans/ci-plan.md); read it first, it settles the exit-code contract and the noise-floor rules for baseline comparison. Five steps: (1) `src/exit.ts` + `ci:` gate block + gate engine + `--out`, (2) markdown reporter + `--format`, (3) baseline diff + `--baseline` + schema-freeze test, (4) `action.yml` and workflows, (5) docs and the `0.1.0` bump. Steps 1–3 are entirely offline against the existing replay fixtures.
+
+**Distribution is live.** Public at [`lach1an/pickrate`](https://github.com/lach1an/pickrate), default branch **`master`** — not `main`, which matters for M4's workflow triggers and for the committed baseline path. Published to npm at `0.0.0`; `npx pickrate inspect …` works from a clean machine.
 
 ## Invariants
 

@@ -8,7 +8,7 @@ A tool manifest is a prompt. Names, descriptions and schemas are the entire inte
 
 The same question applies to Agent Skills, for the same reason: a skill is selected from a one-line description too. Both surfaces go through the same measurement.
 
-> Status: **M2 complete**, adapter split complete. `inspect` (static analysis) and `run` (selection eval) both work, on MCP servers and on skills directories. The mutator is not built yet — see [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md) and [`plans/skills-adapter-plan.md`](plans/skills-adapter-plan.md).
+> Status: **M1–M3 complete**, on npm. `inspect` (static analysis), `run` (selection eval) and `mutate` (how much to trust the eval) all work, on MCP servers and on skills directories alike. **M4 (CI) is in progress** — see [`plans/ci-plan.md`](plans/ci-plan.md), and [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md) for the reasoning behind all of it.
 
 ## Quick start
 
@@ -263,6 +263,18 @@ Cost is `(2 + mutants) × trials × scenarios`, and each run is a different surf
 Rules are pure functions — surface in, findings out. No network, no model. Keep it that way. Each declares the surfaces it applies to, and one that has nothing to say about a surface is skipped rather than run against an empty list: silence and "no findings" must not read the same.
 
 For skills, the headline token figure is **routing cost only** — the name and description resident in every request. Bodies are reported on their own line, because they cost nothing until the skill triggers, and conflating the two hides the thing progressive disclosure exists to give you.
+
+## Roadmap
+
+| | | |
+|---|---|---|
+| **M1** | Analyser — `inspect`, no API key, no cost | ✅ shipped |
+| **M2** | Runner + scorer — `run`, pass rates and confusion | ✅ shipped |
+| **M3** | Mutator — `mutate`, a mutation score over injected defects | ✅ shipped |
+| **M4** | CI — exit-code contract, gates in config, baseline diff, a GitHub Action | 🔨 [in progress](plans/ci-plan.md) |
+| **M5** | The leaderboard — run it against the best-known public servers and skills, publish the methodology | next |
+
+The adapter split (MCP + Agent Skills through one engine) landed alongside M2; see [`plans/skills-adapter-plan.md`](plans/skills-adapter-plan.md).
 
 ## Development
 

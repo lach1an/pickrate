@@ -1,6 +1,6 @@
 # M4 — CI-ready: implementation plan
 
-**Status:** proposed, pre-code
+**Status:** agreed, in progress — step 1 next
 **Date:** 25 July 2026
 **Implements:** [`mcp-eval-spec.md`](mcp-eval-spec.md) §7 (M4)
 **Follows:** M3 (mutator), complete
@@ -244,24 +244,19 @@ Steps 1–3 are the release. The Action is packaging on top of a CLI that is alr
 
 The version bump to **0.1.0** belongs in step 5 and matters: the Action pins a published range, so M4 is the first milestone that has to actually be on npm.
 
-### 7.1 Two prerequisites that need credentials
+### 7.1 Release prerequisites
 
-Neither can be done from inside the repo, and both gate step 4 rather than steps 1–3.
+**Two remain, both at step 5:**
 
-**GitHub.** No remote exists yet. `gh` is not installed on this machine and there is no token, so the repo has to be created by hand:
+1. **Trusted publishing is not configured.** The release workflow should publish via npm's **OIDC trusted publishing**, configured on npmjs.com against `lach1an/pickrate` and the workflow file — not a long-lived `NPM_TOKEN` secret. It also yields provenance attestation, which for a tool whose entire pitch is "how much should you trust this report" is not merely hygiene.
+2. **The `0.1.0` bump touches two places.** `package.json` and the hardcoded `VERSION` constant in `src/cli.ts` are duplicates today. The schema-freeze test in §6 asserts they match, so bump them together or the suite catches it — which is the point of putting that assertion in.
 
-```bash
-# either install gh (brew/apt/winget) and:
-gh repo create lach1an/pickrate --public --source . --remote origin --push
-# or create it in the web UI, then:
-git remote add origin https://github.com/lach1an/pickrate.git && git push -u origin master
-```
+**Discharged 25 July 2026:**
 
-**Public**, because an Action in a private repo can only be `uses:` from inside the same org — a private repo makes the deliverable of step 4 unusable by anyone. The licence is already MIT, so this changes nothing that was not already decided.
+- **GitHub.** Public at `lach1an/pickrate`, default branch **`master`**. Public was effectively forced: an Action in a private repo can only be `uses:` from inside the same org, which would make step 4's deliverable unusable by anyone else.
+- **npm.** Name claimed, published manually as `0.0.0`. Packaging verified from a clean install — `npx pickrate@0.0.0 inspect ./messy` renders findings with no API key, and the registry tarball's shasum matches a local `npm pack` byte for byte. Invariant 1's zero-credential first run now demonstrably works for someone who is not the author.
 
-**npm.** Not logged in on this machine, no account yet. The name **`pickrate` is still free** (registry 404 as of 25 July 2026) — but free is not reserved, and the naming decision in `skills-adapter-plan.md` §11.3 is riding on it. Reserving it is one command once an account exists, and is worth doing before step 5 rather than during it.
-
-Publishing route: **npm trusted publishing (OIDC) from GitHub Actions**, not a long-lived `NPM_TOKEN` secret. The first publish must be manual to create the package; the trusted publisher is then configured on npmjs.com against this repo and the release workflow, after which the workflow publishes with no secret in the repo at all — and gets provenance attestation for free, which for a tool whose entire pitch is "how much should you trust this report" is not merely hygiene.
+A note for whoever writes the workflows: git here is configured for **SSH**, so the `workflow`-scope restriction that bites PAT-over-HTTPS pushes does not apply — `.github/workflows/*` pushes fine with the existing key.
 
 ---
 

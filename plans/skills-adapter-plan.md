@@ -1,6 +1,6 @@
 # Adapter split: MCP + Agent Skills — implementation plan
 
-**Status:** proposed, pre-code
+**Status:** implemented, 25 July 2026 — all six steps of §9 landed
 **Date:** 25 July 2026
 **Implements:** [`mcp-eval-spec.md`](mcp-eval-spec.md) §11
 **Precedes:** M3 (mutator), M4 (CI)
