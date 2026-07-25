@@ -9,8 +9,16 @@ import { AnthropicProvider, CredentialError } from './provider/anthropic.js';
 import { formatUsd } from './provider/pricing.js';
 import { ReplayProvider } from './provider/replay.js';
 import type { CostEstimate, Provider } from './provider/index.js';
+import {
+  BASELINE_RUNS,
+  DEFAULT_MUTANTS,
+  planMutants,
+  runMutation,
+  type MutationProgress,
+} from './mutator/index.js';
 import { formatEvalReport } from './report/eval.js';
-import { formatAnalysisJson, formatEvalReportJson } from './report/json.js';
+import { formatAnalysisJson, formatEvalReportJson, formatMutationReportJson } from './report/json.js';
+import { formatMutationReport } from './report/mutation.js';
 import { formatAnalysis } from './report/table.js';
 import { runEval, totalTrials } from './runner/index.js';
 import type { EvalConfig, Severity, SurfaceKind } from './types.js';
@@ -23,6 +31,8 @@ ${pc.bold('pickrate')} — does an agent actually pick your tools and skills cor
 ${pc.bold('Usage')}
   pickrate inspect <target> [options]     static analysis — no API key, no cost
   pickrate run <config.yaml> [options]    selection eval — needs a model
+  pickrate mutate <config.yaml> [options] break the surface on purpose, check
+                                          the eval noticed — needs a model
 
 ${pc.bold('Targets')}
   "node ./build/index.js"        stdio MCP server (quote the whole command)
@@ -44,6 +54,15 @@ ${pc.bold('run options')}
   --trials <n>            override defaults.trials
   --replay <file>         replay recorded trials instead of calling a model
   --presentation <mode>   skills only: skill-tool (default) or pseudo-tool
+
+${pc.bold('mutate options')}
+  --mutants <n>           how many defects to inject (default: ${DEFAULT_MUTANTS})
+  --operators <ids>       comma-separated: blank-description, swap-descriptions,
+                          inject-decoys (default: all of them)
+  --min-score <0..1>      exit 1 when the mutation score falls below this
+  plus --json, --dry-run, --yes, --model, --trials, --presentation from run.
+  ${pc.dim(`Costs ${BASELINE_RUNS} clean runs plus one per mutant — the clean runs are the`)}
+  ${pc.dim('noise floor, and a drop smaller than that means nothing.')}
 
 ${pc.bold('shared options')}
   --adapter <id>          force mcp or skills, skipping target detection
@@ -72,6 +91,9 @@ async function main(argv: string[]): Promise<number> {
       trials: { type: 'string' },
       replay: { type: 'string' },
       presentation: { type: 'string' },
+      mutants: { type: 'string' },
+      operators: { type: 'string' },
+      'min-score': { type: 'string' },
       adapter: { type: 'string' },
       header: { type: 'string', multiple: true },
       env: { type: 'string', multiple: true },
@@ -114,6 +136,14 @@ async function main(argv: string[]): Promise<number> {
       return 2;
     }
     return run(target, loadOptions, values);
+  }
+
+  if (command === 'mutate') {
+    if (target === undefined) {
+      process.stderr.write(`mutate needs a config file.\n${USAGE}\n`);
+      return 2;
+    }
+    return mutate(target, loadOptions, values);
   }
 
   process.stderr.write(`Unknown command: ${command}\n${USAGE}\n`);
@@ -186,6 +216,81 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
   return report.scenarios.every((s) => s.passed) ? 0 : 1;
 }
 
+/**
+ * Break the surface on purpose and check the eval noticed.
+ *
+ * The one command that reports on pickrate rather than on your server. Every
+ * other tool in this space tells you how good your surface is; this tells you
+ * how much to believe that (spec §6).
+ */
+async function mutate(configPath: string, loadOptions: LoadOptions, values: Values): Promise<number> {
+  const config = applyOverrides(await loadConfig(configPath), values);
+  const json = values.json === true;
+
+  // Replay is keyed on scenario id and knows nothing about the surface, so
+  // every mutant would replay identically and score exactly zero — a mutation
+  // score of 0% that reads like a devastating finding and is an artefact.
+  if (values.replay !== undefined) {
+    throw new Error(
+      'mutate cannot use --replay: recorded trials are indifferent to the surface, so every mutant would ' +
+        'replay identically and score 0%. Mutation testing needs a model that actually reads the damaged surface.',
+    );
+  }
+
+  const surface = await loadSurface(config.target, loadOptions);
+  const provider: Provider = new AnthropicProvider({ model: config.defaults.model });
+
+  const mode = (values.presentation as string | undefined) ?? config.defaults.presentation;
+  const presentation = adapterFor(surface.kind).present(surface, mode !== undefined ? { mode } : {});
+
+  const mutants = planMutants(surface, {
+    ...(values.operators ? { operators: (values.operators as string).split(',').map((id) => id.trim()) } : {}),
+    limit: parsePositive(values.mutants as string | undefined, '--mutants') ?? DEFAULT_MUTANTS,
+  });
+
+  if (mutants.length === 0) {
+    throw new Error(
+      `Nothing to mutate: no operator could damage this surface of ${surface.items.length} items.`,
+    );
+  }
+
+  const runs = BASELINE_RUNS + mutants.length;
+  const trials = totalTrials(config) * runs;
+  const estimate = await preflight(provider, config, presentation, trials, json, 'mutate', runs);
+
+  if (values['dry-run'] === true) {
+    if (!json) {
+      process.stderr.write(
+        pc.dim(`  ${mutants.length} mutants over ${runs} runs. --dry-run: nothing was spent.\n\n`),
+      );
+    }
+    return 0;
+  }
+
+  if (estimate && !json && values.yes !== true && process.stdin.isTTY) {
+    if (!(await confirm())) {
+      process.stderr.write(pc.dim('  Cancelled.\n'));
+      return 130;
+    }
+  }
+
+  const onProgress = json ? undefined : renderMutationProgress();
+  const report = await runMutation(config, surface, provider, {
+    mutants,
+    ...(mode !== undefined ? { mode } : {}),
+    ...(onProgress ? { onProgress } : {}),
+  });
+  await provider.close?.();
+
+  process.stdout.write(
+    json ? `${formatMutationReportJson(report)}\n` : `${formatMutationReport(report)}\n`,
+  );
+
+  const minScore = parseThreshold(values['min-score'] as string | undefined);
+  if (minScore === undefined) return 0;
+  return report.mutationScore >= minScore ? 0 : 1;
+}
+
 /** Price the run before spending, using the free token-counting endpoint. */
 async function preflight(
   provider: Provider,
@@ -193,6 +298,8 @@ async function preflight(
   presentation: Presentation,
   trials: number,
   json: boolean,
+  command = 'run',
+  runs = 1,
 ): Promise<CostEstimate | undefined> {
   if (!provider.estimate) return undefined;
 
@@ -220,10 +327,14 @@ async function preflight(
       : `~${formatUsd(estimate.estimatedUsd)}`;
 
   process.stderr.write(
-    `\n${pc.bold('pickrate run')}  ${pc.dim(config.path)}\n` +
+    `\n${pc.bold(`pickrate ${command}`)}  ${pc.dim(config.path)}\n` +
       `  ${pc.bold('model')}     ${estimate.model}\n` +
       pc.dim(`  manifest  ~${estimate.inputTokensPerTrial.toLocaleString()} input tokens per trial\n`) +
       pc.dim(`  trials    ${trials} across ${config.scenarios.length} scenarios\n`) +
+      // Each run is a different surface and so a different cached prefix. A
+      // mutation session is not one warm run, it is `runs` of them, and the
+      // estimate must not imply otherwise.
+      (runs > 1 ? pc.dim(`  runs      ${runs}, each writing its own prompt cache\n`) : '') +
       `  ${pc.bold('estimate')}  ${cost}\n\n`,
   );
   return estimate;
@@ -253,6 +364,18 @@ function renderProgress() {
   };
 }
 
+/** Same discipline as `renderProgress`, with the run's label in front. */
+function renderMutationProgress() {
+  if (!process.stderr.isTTY) return undefined;
+  return ({ label, completed, total, trial }: MutationProgress) => {
+    process.stderr.write(
+      `\r${' '.repeat(72)}\r  run ${completed}/${total} ${pc.dim(label)}` +
+        `  ${trial.completed}/${trial.total} trials`,
+    );
+    if (completed === total && trial.completed === trial.total) process.stderr.write('\n');
+  };
+}
+
 function applyOverrides(config: EvalConfig, values: Values): EvalConfig {
   const model = values.model as string | undefined;
   const trials = values.trials as string | undefined;
@@ -276,6 +399,24 @@ function applyOverrides(config: EvalConfig, values: Values): EvalConfig {
         ? config.scenarios
         : config.scenarios.map(({ trials: _ignored, ...rest }) => rest),
   };
+}
+
+function parsePositive(value: string | undefined, flag: string): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${flag} must be a positive integer (got "${value}")`);
+  }
+  return parsed;
+}
+
+function parseThreshold(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    throw new Error(`--min-score must be between 0 and 1 (got "${value}")`);
+  }
+  return parsed;
 }
 
 function parseAdapter(value: string): SurfaceKind {

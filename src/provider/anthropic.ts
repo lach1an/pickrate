@@ -178,7 +178,7 @@ export class CredentialError extends Error {
   constructor(detail: string) {
     super(
       `${detail}\n` +
-        `  pickrate run needs model access. Set ANTHROPIC_API_KEY, or run "ant auth login".\n` +
+        `  pickrate run and mutate need model access. Set ANTHROPIC_API_KEY, or run "ant auth login".\n` +
         `  ${pc.dim('pickrate inspect needs no credentials at all.')}`,
     );
     this.name = 'CredentialError';

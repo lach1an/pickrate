@@ -55,6 +55,37 @@ export {
   type ScoreOptions,
 } from './scorer/index.js';
 export { runEval, totalTrials, mapPool, type RunOptions, type RunProgress } from './runner/index.js';
+export {
+  planMutants,
+  runMutation,
+  scoreMutation,
+  judgeMutant,
+  baselineOf,
+  meanScore,
+  minNoise,
+  trialsPerRun,
+  operators,
+  operatorsById,
+  blankDescription,
+  swapDescriptions,
+  injectDecoys,
+  decoyItems,
+  DECOY_COUNT,
+  DEFAULT_MUTANTS,
+  BASELINE_RUNS,
+  type Mutant,
+  type Operator,
+  type PlanOptions,
+  type RunMutationOptions,
+  type MutationProgress,
+  type ScoreMutationInput,
+} from './mutator/index.js';
 export { formatAnalysis } from './report/table.js';
 export { formatEvalReport } from './report/eval.js';
-export { formatAnalysisJson, formatEvalReportJson, SCHEMA_VERSION } from './report/json.js';
+export { formatMutationReport } from './report/mutation.js';
+export {
+  formatAnalysisJson,
+  formatEvalReportJson,
+  formatMutationReportJson,
+  SCHEMA_VERSION,
+} from './report/json.js';

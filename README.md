@@ -190,6 +190,59 @@ Scenario semantics are otherwise identical — around 20 prompts, half that shou
 - **It runs the first trial alone**, so the surface lands in the prompt cache before the rest fan out. Without that, a large surface is re-billed at full price on every trial.
 - **The model under test is part of the result**, so the report names it prominently.
 
+## `pickrate mutate` — how much should you trust the report?
+
+Every other tool in this space tells you how good your surface is. This one tells you how much to believe that.
+
+The problem it solves is circularity: whoever writes the scenarios reads the same descriptions the model does, inherits the same ambiguities, and can write a test that passes having measured nothing. So `mutate` breaks the surface *in a way you chose*, re-runs the eval, and checks the score moved. Ground truth is constructed rather than judged.
+
+```bash
+pickrate mutate pickrate.yaml --mutants 3
+```
+
+```
+pickrate mutate  ./git-server.json
+  model     claude-haiku-4-5
+  baseline  91%  from 2 clean runs of 20 trials · noise floor 6%
+
+  ✓ blank-description:create_branch  −34%  detected
+                                     "create_branch" loses its description
+  · swap-descriptions:a+b             −1%  survived
+                                     "a" and "b" trade descriptions
+
+  survivors
+    · swap-descriptions:a+b — damaged a, b
+    A survivor is inconclusive, not a pass. Either no scenario exercises
+    the damaged tools, or the harness cannot see the damage. Check coverage first.
+
+  mutation score  50%  1 of 2 injected defects detected
+```
+
+### Operators
+
+| Operator | What a kill proves |
+|---|---|
+| `blank-description` | Descriptions carry real signal — the bluntest check there is |
+| `swap-descriptions` | Selection reads descriptions *instead of* guessing from names |
+| `inject-decoys` | Context bloat degrades selection, so token cost is behavioural and not just a bill |
+
+All three apply to MCP and skills alike, which is what the adapter split bought.
+
+### The noise floor
+
+A mutation score built on a single clean run is a count of coin flips. So the clean surface is measured **twice**, and the gap between those two runs is the bar a mutant's drop has to clear — spec §6's variance baseline. Below that gap, nothing means anything.
+
+The gap is floored at `1/trials`: one trial flipping is worth that much, and two runs that happen to land identically would otherwise set the bar at zero and "detect" every mutant, including the ones that changed nothing.
+
+### Reading it
+
+- **A killed mutant is good news.** It means the harness noticed damage you injected on purpose.
+- **A survivor is inconclusive, never a pass.** Either no scenario goes near what was damaged, or the eval is blind to it. The report names each survivor's targets so you can tell which.
+- **Mutation scores are per-adapter.** Blanking one description out of eight skills and one out of forty tools are not the same operation. Never average them.
+- **`--replay` is refused here.** Recorded trials are keyed on scenario id and indifferent to the surface, so every mutant would replay identically and score 0% — a devastating-looking finding that is pure artefact.
+
+Cost is `(2 + mutants) × trials × scenarios`, and each run is a different surface and so a different cached prefix. `--dry-run` prices it first.
+
 ## Rules
 
 | Rule | Surface | Default | What it catches |
@@ -228,7 +281,9 @@ npm run dev -- run test/fixtures/skills-eval.yaml \
   --replay test/fixtures/trials/skills.json
 ```
 
-Fixtures in `test/fixtures/` let every component be developed with no server running and no API spend — captured `tools/list` responses and `SKILL.md` trees for the analyser, recorded trials for the scorer. Each surface has a clean fixture (a test asserts it produces zero findings) and a messy one that trips every rule. They're also the seed corpus for the M3 mutator.
+Fixtures in `test/fixtures/` let every component be developed with no server running and no API spend — captured `tools/list` responses and `SKILL.md` trees for the analyser, recorded trials for the scorer, and `mutation.yaml` for the mutation loop. Each surface has a clean fixture (a test asserts it produces zero findings) and a messy one that trips every rule.
+
+The mutation loop can't use recorded trials — they're indifferent to the surface — so its offline tests drive it with a deliberately dumb word-overlap model in `test/helpers/`. That fake stays in `test/`: it proves the wiring, and its scores are fiction.
 
 ## Layout
 
@@ -242,6 +297,7 @@ src/
   provider/    asks a model — the ONLY place that imports a model SDK
   runner/      N trials × M scenarios, bounded concurrency
   scorer/      pass rates, confusion matrix, orphans, flakiness
+  mutator/     injects known defects, scores what the harness caught (M3)
   report/      table and JSON output
   types.ts     the domain model everything else shares
 ```
