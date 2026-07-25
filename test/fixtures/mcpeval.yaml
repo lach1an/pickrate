@@ -1,0 +1,39 @@
+# Offline fixture: pairs with test/fixtures/git-server.json and
+# test/fixtures/trials/git-server.json. Exercises every scoring path —
+# a clean scenario, a confusion pair, a restraint check, an argument
+# mismatch, and an errored trial — with no server and no API spend.
+server:
+  transport: file
+  manifest: ./git-server.json
+
+defaults:
+  trials: 5
+  threshold: 0.95
+  model: claude-haiku-4-5
+  concurrency: 4
+
+scenarios:
+  - id: create-branch
+    prompt: "make me a branch called feature-login"
+    expect:
+      tool: create_branch
+      args:
+        name: feature-login
+
+  - id: create-branch-colloquial
+    prompt: "can you branch off main for the login work"
+    expect:
+      tool: create_branch
+    threshold: 0.80
+
+  - id: no-tool-needed
+    prompt: "what's the capital of France?"
+    expect:
+      tool: null
+
+  - id: create-branch-named
+    prompt: "start a hotfix branch"
+    expect:
+      tool: create_branch
+      args:
+        name: hotfix

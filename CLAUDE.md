@@ -4,18 +4,33 @@ Full spec: [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md). Read it before ma
 
 ## Current state
 
-**M1 (analyser) — in progress.** `mcpeval inspect <target>` connects, pulls the manifest, reports token cost and lint findings.
-M2 (runner + scorer), M3 (mutator), M4 (CI) are not started.
+**M1 (analyser) and M2 (runner + scorer) — complete.** `mcpeval inspect <target>` reports token cost and lint findings; `mcpeval run <config.yaml>` runs scenarios × trials against a model and reports pass rates, confusion pairs, orphan tools and flakiness.
+M3 (mutator) and M4 (CI) are not started.
 
 ## Invariants
 
 These are load-bearing, not preferences:
 
 1. **`inspect` never makes a model call and never requires an API key.** The zero-credential first run is the distribution strategy, not a nicety. Analyser rules are pure: `Manifest` in, `Finding[]` out.
-2. **Only `src/connector/` imports `@modelcontextprotocol/sdk`.** Everything else consumes `Manifest` from `src/types.ts`. The spec finalises `2026-07-28` (stateless, no `initialize`, no `Mcp-Session-Id`, new `Mcp-Method`/`Mcp-Name` routing headers) and the SDKs will churn. Contain it.
-3. **Every eval assertion is a pass rate over N trials, never a boolean.** Tool selection is non-deterministic; a binary assertion passes Tuesday and fails Wednesday. This governs M2's API design.
+2. **Only `src/connector/` imports `@modelcontextprotocol/sdk`; only `src/provider/` imports `@anthropic-ai/sdk`.** Everything else consumes `Manifest` and `TrialResult` from `src/types.ts`. The MCP spec finalises `2026-07-28` (stateless, no `initialize`, no `Mcp-Session-Id`, new `Mcp-Method`/`Mcp-Name` routing headers) and the SDKs will churn; the model is a swappable part of the measurement. Contain both.
+3. **Every eval assertion is a pass rate over N trials, never a boolean.** Tool selection is non-deterministic; a binary assertion passes Tuesday and fails Wednesday.
 4. **Score selection, arguments and restraint separately.** Different bugs, different fixes. Restraint (correctly calling *nothing*) is the most neglected.
 5. **Diagnostics outrank the headline number in the report.** Goodhart: the moment someone optimises the score they write descriptions that game it. Confusion pairs, orphan tools and token cost go above any total.
+6. **Never retry a trial because of its result.** Transport errors retry (in the SDK client); a "wrong" tool choice is data. Retrying it until it looks better biases every pass rate upward, invisibly.
+7. **`run` never executes a tool.** One model turn per trial; `tools/call` is never issued. A `delete_branch` scenario must not delete anything on the user's server.
+
+## Measurement decisions (M2)
+
+Changing any of these changes what the numbers mean — don't adjust them casually.
+
+- **Selection passes only on exactly one call, the expected one.** Over-eager tool calling is a real failure mode; scoring "right tool plus two others" as a pass would hide it.
+- **Arguments are matched as a subset** — only keys declared in `expect.args`. Extra arguments the model supplies are ignored, so a scenario never has to enumerate optional params.
+- **Normalisation trims strings and nothing else.** No lowercasing: branch names, paths and identifiers are case-sensitive, and wrong case *is* a wrong argument.
+- **Errored trials leave the denominator** and are counted separately, so a flaky network doesn't read as a bad manifest.
+- **`tool_choice: auto` is mandatory** — a forced choice makes restraint scenarios impossible to express.
+- **Never `thinking: {type: "disabled"}`.** On some models that makes tool calls arrive as visible text rather than `tool_use` blocks, which this harness would silently score as "selected nothing" — a systematic error in the primary metric. Use `output_config.effort` for cost instead.
+- **Warm-then-fan-out.** The cache breakpoint sits on the system prompt (which renders after `tools`), and a cache entry is only readable once the first response returns — so trial 1 runs alone. Keep `SYSTEM_PROMPT` byte-stable; one interpolated timestamp makes a run ~10× dearer.
+- **No seeding is available.** `temperature`/`top_p`/`top_k` are removed or rejected on current models and there is no seed parameter, so the spec's "deterministic seeding where the provider allows it" is not implementable. Variance is irreducible — which is the premise anyway.
 
 ## Stack
 
@@ -25,7 +40,18 @@ Current SDK (`1.29.0`) still negotiates protocol `2025-11-25` and still does the
 
 ## Fixtures
 
-`test/fixtures/*.json` are captured `tools/list` responses. `loadManifestFromFile` reads them, so the analyser, and later the scorer, can be developed with no server running and no API spend. `git-server.json` is deliberately clean (it must produce zero warnings — a test asserts this); `messy-server.json` deliberately trips every rule. They are also the seed corpus for M3's mutation testing.
+Two kinds, both so components can be developed with no server and no API spend:
+
+- `test/fixtures/*.json` — captured `tools/list` responses, read by `loadManifestFromFile`. `git-server.json` is deliberately clean (a test asserts zero warnings); `messy-server.json` deliberately trips every analyser rule.
+- `test/fixtures/trials/*.json` — recorded `TrialResult[]`, replayed by `ReplayProvider`. `git-server.json` covers a clean scenario, a confusion pair, a restraint miss, an argument mismatch and an errored trial. `test/fixtures/mcpeval.yaml` pairs with both.
+
+Together they run the whole eval pipeline offline:
+
+```bash
+npm run dev -- run test/fixtures/mcpeval.yaml --replay test/fixtures/trials/git-server.json
+```
+
+They are also the seed corpus for M3's mutation testing — a mutation run scores a damaged manifest against this recorded baseline.
 
 ## Conventions
 

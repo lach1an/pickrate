@@ -6,7 +6,7 @@ A tool manifest is a prompt. Names, descriptions and schemas are the entire inte
 
 `mcpeval` measures that.
 
-> Status: **M1 in progress.** `inspect` (static analysis) works. The runner, scorer and mutator are not built yet — see [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md).
+> Status: **M2 complete.** `inspect` (static analysis) and `run` (tool-selection eval) both work. The mutator is not built yet — see [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md).
 
 ## Quick start
 
@@ -59,6 +59,88 @@ mcpeval inspect  npx -y @modelcontextprotocol/server-filesystem /tmp
 --timeout <ms>          connection budget (default: 30000)
 ```
 
+## `mcpeval run` — does a model actually use it correctly?
+
+`inspect` tells you the manifest is well-formed. `run` puts a model in the loop and measures whether it picks the right tool.
+
+```bash
+npx mcpeval run examples/filesystem.yaml --dry-run   # price it, spend nothing
+npx mcpeval run examples/filesystem.yaml
+```
+
+This one needs model access — `ANTHROPIC_API_KEY`, or an `ant auth login` profile.
+
+```
+mcpeval run  npx -y @modelcontextprotocol/server-filesystem /tmp
+  model     claude-haiku-4-5
+  trials    3 × 6 scenarios in 8.2s
+  cost      ~<$0.01  (412 in / 1,088 out, 21,600 cached)
+
+  ✓ read-file            100%  ████████████████  3/3
+  ✗ list-with-sizes       33%  █████░░░░░░░░░░░  1/3  needs 80% · flaky
+  ✓ no-tool-needed       100%  ████████████████  3/3  restraint
+
+  confusion
+    list-with-sizes  wanted list_directory_with_sizes → got list_directory ×2
+
+  orphan tools
+    · move_file
+    Never selected by any scenario — context you pay for on every call.
+
+  1 of 6 scenarios below threshold · 1 in the 20–80% flakiness band
+```
+
+**Every assertion is a pass rate over N trials, never a boolean.** Tool selection is non-deterministic; a binary assertion passes on Tuesday and fails on Wednesday and teaches you nothing. Three things are scored separately, because they're different bugs with different fixes: **selection** (right tool?), **arguments** (right values?), and **restraint** (correctly called *nothing*?).
+
+### `run` options
+
+```
+--dry-run               print the cost estimate and exit without spending
+--yes                   skip the cost confirmation
+--model <id>            override defaults.model
+--trials <n>            override defaults.trials
+--replay <file>         replay recorded trials instead of calling a model
+```
+
+### Scenario file
+
+```yaml
+server:
+  transport: stdio                  # or: http + url, or: file + manifest
+  command: node ./build/index.js
+
+defaults:
+  trials: 20
+  threshold: 0.95
+  model: claude-haiku-4-5
+  concurrency: 4
+
+scenarios:
+  - id: create-branch
+    prompt: "make me a branch called feature-login"
+    expect:
+      tool: create_branch
+      args: { name: feature-login }   # only declared keys are asserted
+
+  - id: no-tool-needed
+    prompt: "what's the capital of France?"
+    expect: { tool: null }            # restraint check
+
+  - id: ambiguous-delete
+    prompt: "get rid of the staging branch"
+    expect: { tool: delete_branch }
+    threshold: 0.99                   # destructive — demand near-certainty
+```
+
+Per-scenario `threshold` matters: a higher bar for destructive operations than for convenience ones is a judgement call you should own.
+
+### What `run` does and doesn't do
+
+- **It never executes a tool.** One model turn per trial, `tools/call` is never issued — a `delete_branch` scenario must not delete anything on your server.
+- **It never retries a result.** Transport errors are retried; a trial that picked the wrong tool is *data*, and retrying it would bias every pass rate upward.
+- **It runs the first trial alone**, so the manifest lands in the prompt cache before the rest fan out. Without that, a large manifest is re-billed at full price on every trial.
+- **The model under test is part of the result**, so the report names it prominently.
+
 ## Rules
 
 | Rule | Default | What it catches |
@@ -80,21 +162,29 @@ npm run dev -- inspect ./test/fixtures/messy-server.json   # run from source
 npm test                                                   # node:test, offline
 npm run typecheck
 npm run build
+
+# The whole eval pipeline, offline: no server, no API key, no spend.
+npm run dev -- run test/fixtures/mcpeval.yaml \
+  --replay test/fixtures/trials/git-server.json
 ```
 
-Fixtures in `test/fixtures/` let every component be developed with no server running and no API spend. They're also the seed corpus for the M3 mutator.
+Fixtures in `test/fixtures/` let every component be developed with no server running and no API spend — captured `tools/list` responses for the analyser, and recorded trials for the scorer. They're also the seed corpus for the M3 mutator.
 
 ## Layout
 
 ```
 src/
-  connector/   speaks MCP — the ONLY place that imports the SDK
+  connector/   speaks MCP — the ONLY place that imports the MCP SDK
   analyser/    static rules + token counting (M1)
+  config/      mcpeval.yaml parsing and validation
+  provider/    asks a model — the ONLY place that imports a model SDK
+  runner/      N trials × M scenarios, bounded concurrency
+  scorer/      pass rates, confusion matrix, orphans, flakiness
   report/      table and JSON output
   types.ts     the domain model everything else shares
 ```
 
-The connector is isolated hard on purpose: the MCP spec finalises `2026-07-28` (stateless, no handshake, new routing headers) and the SDKs will churn for a couple of quarters. That churn should stay in one directory.
+Two seams, isolated hard on purpose. The **connector** because the MCP spec finalises `2026-07-28` (stateless, no handshake, new routing headers) and the SDKs will churn for a couple of quarters. The **provider** because the model is a swappable part of the measurement, and because everything downstream of it must stay testable with no API key.
 
 ## Licence
 

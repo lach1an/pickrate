@@ -1,0 +1,129 @@
+{
+  "model": "claude-haiku-4-5",
+  "trials": [
+    {
+      "scenarioId": "create-branch",
+      "calls": [{ "name": "create_branch", "args": { "name": "feature-login" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 18, "outputTokens": 42, "cacheCreationInputTokens": 240, "cacheReadInputTokens": 0 }
+    },
+    {
+      "scenarioId": "create-branch",
+      "calls": [{ "name": "create_branch", "args": { "name": "feature-login" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 18, "outputTokens": 40, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+    {
+      "scenarioId": "create-branch",
+      "calls": [{ "name": "create_branch", "args": { "name": "feature-login", "base": "main" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 18, "outputTokens": 47, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+    {
+      "scenarioId": "create-branch",
+      "calls": [{ "name": "create_branch", "args": { "name": "feature-login" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 18, "outputTokens": 41, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+    {
+      "scenarioId": "create-branch",
+      "calls": [{ "name": "create_branch", "args": { "name": "feature-login" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 18, "outputTokens": 40, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+
+    {
+      "scenarioId": "create-branch-colloquial",
+      "calls": [{ "name": "create_branch", "args": { "name": "login", "base": "main" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 20, "outputTokens": 48, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+    {
+      "scenarioId": "create-branch-colloquial",
+      "calls": [{ "name": "list_branches", "args": {} }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 20, "outputTokens": 33, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+    {
+      "scenarioId": "create-branch-colloquial",
+      "calls": [{ "name": "create_branch", "args": { "name": "login", "base": "main" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 20, "outputTokens": 46, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+    {
+      "scenarioId": "create-branch-colloquial",
+      "calls": [{ "name": "list_branches", "args": {} }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 20, "outputTokens": 31, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+    {
+      "scenarioId": "create-branch-colloquial",
+      "calls": [{ "name": "create_branch", "args": { "name": "login-work" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 20, "outputTokens": 44, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+
+    {
+      "scenarioId": "no-tool-needed",
+      "calls": [],
+      "stopReason": "end_turn",
+      "usage": { "inputTokens": 15, "outputTokens": 12, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+    {
+      "scenarioId": "no-tool-needed",
+      "calls": [],
+      "stopReason": "end_turn",
+      "usage": { "inputTokens": 15, "outputTokens": 11, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+    {
+      "scenarioId": "no-tool-needed",
+      "calls": [{ "name": "list_branches", "args": {} }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 15, "outputTokens": 30, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+    {
+      "scenarioId": "no-tool-needed",
+      "calls": [],
+      "stopReason": "end_turn",
+      "usage": { "inputTokens": 15, "outputTokens": 12, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+    {
+      "scenarioId": "no-tool-needed",
+      "calls": [],
+      "stopReason": "end_turn",
+      "usage": { "inputTokens": 15, "outputTokens": 13, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+
+    {
+      "scenarioId": "create-branch-named",
+      "calls": [{ "name": "create_branch", "args": { "name": "hotfix" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 16, "outputTokens": 39, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+    {
+      "scenarioId": "create-branch-named",
+      "calls": [{ "name": "create_branch", "args": { "name": "hotfix-branch" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 16, "outputTokens": 41, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+    {
+      "scenarioId": "create-branch-named",
+      "calls": [{ "name": "create_branch", "args": { "name": " hotfix " } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 16, "outputTokens": 40, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    },
+    {
+      "scenarioId": "create-branch-named",
+      "calls": [],
+      "stopReason": null,
+      "usage": { "inputTokens": 0, "outputTokens": 0, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 0 },
+      "error": "Connection error."
+    },
+    {
+      "scenarioId": "create-branch-named",
+      "calls": [{ "name": "create_branch", "args": { "name": "hotfix" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 16, "outputTokens": 39, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 240 }
+    }
+  ]
+}

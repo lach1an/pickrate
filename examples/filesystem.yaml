@@ -1,0 +1,62 @@
+# A ready-to-run eval against the official filesystem MCP server.
+#
+#   npx mcpeval run examples/filesystem.yaml --dry-run   # price it, spend nothing
+#   npx mcpeval run examples/filesystem.yaml             # run it
+#
+# Trials are set low so this costs a fraction of a cent. Raise to 20 (the
+# spec's default) once you care about the numbers — a 3-trial pass rate has a
+# very wide confidence interval and should not be read as a result.
+server:
+  transport: stdio
+  command: npx -y @modelcontextprotocol/server-filesystem /tmp
+
+defaults:
+  trials: 3
+  threshold: 0.95
+  model: claude-haiku-4-5
+  concurrency: 4
+
+scenarios:
+  - id: read-file
+    prompt: "show me what's in /tmp/notes.txt"
+    expect:
+      tool: read_text_file
+      args:
+        path: /tmp/notes.txt
+
+  - id: list-directory
+    prompt: "what files are in /tmp?"
+    expect:
+      tool: list_directory
+
+  # `list_directory` and `list_directory_with_sizes` describe themselves 67%
+  # alike (mcpeval inspect flags the pair). This scenario is where that shows
+  # up as a real selection failure rather than a lint warning.
+  - id: list-with-sizes
+    prompt: "how big is each file in /tmp?"
+    expect:
+      tool: list_directory_with_sizes
+    threshold: 0.80
+
+  - id: search
+    prompt: "find any file under /tmp with 'config' in the name"
+    expect:
+      tool: search_files
+
+  # Restraint: nothing in this server can answer it, so the right move is to
+  # call no tool at all. Over-eager tool calling is the most neglected failure
+  # mode and the one this scenario exists to catch.
+  - id: no-tool-needed
+    prompt: "what's the capital of France?"
+    expect:
+      tool: null
+
+  # Destructive-adjacent phrasing that should still route to a write, not a
+  # delete. Demand near-certainty.
+  - id: write-file
+    prompt: "replace the contents of /tmp/notes.txt with 'hello'"
+    expect:
+      tool: write_file
+      args:
+        path: /tmp/notes.txt
+    threshold: 0.99

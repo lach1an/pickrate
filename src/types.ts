@@ -86,3 +86,126 @@ export interface Rule {
   defaultSeverity: Severity;
   run(manifest: Manifest): Finding[];
 }
+
+/* -------------------------------------------------------------------------- */
+/* Eval config                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/** What the model is expected to do with a scenario prompt. */
+export interface Expectation {
+  /** Tool the model should select. `null` is a restraint check: call nothing. */
+  tool: string | null;
+  /**
+   * Arguments to assert. Only the keys named here are checked — extra
+   * arguments the model supplies are ignored, so a scenario never has to
+   * enumerate every optional parameter.
+   */
+  args?: Record<string, unknown>;
+}
+
+export interface Scenario {
+  id: string;
+  prompt: string;
+  expect: Expectation;
+  /** Overrides `defaults.threshold`. Demand more of destructive operations. */
+  threshold?: number;
+  /** Overrides `defaults.trials`. */
+  trials?: number;
+}
+
+export interface EvalDefaults {
+  trials: number;
+  threshold: number;
+  model: string;
+  concurrency: number;
+}
+
+export interface EvalConfig {
+  /** How to reach the server, in `parseTarget` form. */
+  target: string;
+  defaults: EvalDefaults;
+  scenarios: Scenario[];
+  /** Where the config was loaded from, for the report header. */
+  path: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Trials                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** One tool invocation the model asked for. */
+export interface ToolCall {
+  name: string;
+  args: Record<string, unknown>;
+}
+
+export interface TrialUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+}
+
+/**
+ * The outcome of one trial: one prompt, one model turn, no tool execution.
+ *
+ * This is the seam between the provider and the scorer — the scorer consumes
+ * only this, never a provider SDK type. It is also the on-disk fixture format,
+ * which is what lets the scorer be developed offline (and what M3's mutation
+ * runs compare against).
+ */
+export interface TrialResult {
+  scenarioId: string;
+  /** Every call the model asked for, in order. Empty means it called nothing. */
+  calls: ToolCall[];
+  stopReason: string | null;
+  usage: TrialUsage;
+  /** Set when the trial could not be completed (transport, refusal, …). */
+  error?: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Scores                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** A pass rate, never a boolean — see spec §4. */
+export interface Rate {
+  passed: number;
+  total: number;
+  rate: number;
+}
+
+export interface ScenarioScore {
+  id: string;
+  prompt: string;
+  expected: string | null;
+  threshold: number;
+  /** Did it choose the right tool — and only that tool? */
+  selection: Rate;
+  /** Of the trials that selected correctly, how many got the args right. */
+  args?: Rate;
+  /** True when `expected` is null: this scenario measures restraint. */
+  restraint: boolean;
+  /** Rate that decides pass/fail against the threshold. */
+  score: number;
+  passed: boolean;
+  /** Between 20% and 80% — looks fine in a demo, fails one call in three. */
+  flaky: boolean;
+  /** What it picked instead, descending by count. */
+  confusions: Array<{ tool: string | null; count: number }>;
+  errors: number;
+}
+
+export interface EvalReport {
+  source: ManifestSource;
+  model: string;
+  trials: number;
+  scenarios: ScenarioScore[];
+  /** Tools in the manifest no scenario ever selected. Context you pay for. */
+  orphanTools: string[];
+  usage: TrialUsage;
+  /** Estimated spend in USD, or undefined when the model has no price entry. */
+  costUsd?: number;
+  startedAt: string;
+  durationMs: number;
+}

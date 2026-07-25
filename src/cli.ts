@@ -1,11 +1,19 @@
 #!/usr/bin/env node
+import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import pc from 'picocolors';
 import { analyse } from './analyser/index.js';
+import { loadConfig } from './config/index.js';
 import { loadManifest, type ConnectOptions } from './connector/index.js';
-import { formatAnalysisJson } from './report/json.js';
+import { AnthropicProvider, CredentialError } from './provider/anthropic.js';
+import { formatUsd } from './provider/pricing.js';
+import { ReplayProvider } from './provider/replay.js';
+import type { CostEstimate, Provider } from './provider/index.js';
+import { formatEvalReport } from './report/eval.js';
+import { formatAnalysisJson, formatEvalReportJson } from './report/json.js';
 import { formatAnalysis } from './report/table.js';
-import type { Severity } from './types.js';
+import { runEval, totalTrials } from './runner/index.js';
+import type { EvalConfig, Severity } from './types.js';
 
 const VERSION = '0.0.0';
 
@@ -13,18 +21,29 @@ const USAGE = `
 ${pc.bold('mcpeval')} — does an agent actually use your MCP server correctly?
 
 ${pc.bold('Usage')}
-  mcpeval inspect <target> [options]
+  mcpeval inspect <target> [options]     static analysis — no API key, no cost
+  mcpeval run <config.yaml> [options]    tool-selection eval — needs a model
 
 ${pc.bold('Targets')}
   "node ./build/index.js"        stdio server (quote the whole command)
   https://api.example.com/mcp    streamable HTTP server
   ./manifest.json                a captured tools/list response
 
-${pc.bold('Options')}
+${pc.bold('inspect options')}
   --json                  machine-readable output
   --fail-on <severity>    exit 1 when findings at or above this level exist
                           (error | warn | info | none, default: none)
   --disable <ids>         comma-separated rule ids to skip
+
+${pc.bold('run options')}
+  --json                  machine-readable output
+  --dry-run               print the cost estimate and exit without spending
+  --yes                   skip the cost confirmation
+  --model <id>            override defaults.model
+  --trials <n>            override defaults.trials
+  --replay <file>         replay recorded trials instead of calling a model
+
+${pc.bold('shared options')}
   --header <k=v>          extra HTTP header (repeatable)
   --env <k=v>             extra env var for stdio servers (repeatable)
   --timeout <ms>          connection budget (default: 30000)
@@ -44,6 +63,11 @@ async function main(argv: string[]): Promise<number> {
       json: { type: 'boolean', default: false },
       'fail-on': { type: 'string', default: 'none' },
       disable: { type: 'string' },
+      'dry-run': { type: 'boolean', default: false },
+      yes: { type: 'boolean', default: false },
+      model: { type: 'string' },
+      trials: { type: 'string' },
+      replay: { type: 'string' },
       header: { type: 'string', multiple: true },
       env: { type: 'string', multiple: true },
       timeout: { type: 'string' },
@@ -64,26 +88,42 @@ async function main(argv: string[]): Promise<number> {
     return command === undefined && !values.help ? 2 : 0;
   }
 
-  if (command !== 'inspect') {
-    process.stderr.write(`Unknown command: ${command}\n${USAGE}\n`);
-    return 2;
-  }
-
-  if (target === undefined) {
-    process.stderr.write(`inspect needs a target.\n${USAGE}\n`);
-    return 2;
-  }
-
-  const failOn = parseFailOn(values['fail-on']);
   const connectOptions: ConnectOptions = {
     ...(values.header ? { headers: parsePairs(values.header, '--header') } : {}),
     ...(values.env ? { env: parsePairs(values.env, '--env') } : {}),
     ...(values.timeout ? { timeoutMs: Number(values.timeout) } : {}),
   };
 
+  if (command === 'inspect') {
+    if (target === undefined) {
+      process.stderr.write(`inspect needs a target.\n${USAGE}\n`);
+      return 2;
+    }
+    return inspect(target, connectOptions, values);
+  }
+
+  if (command === 'run') {
+    if (target === undefined) {
+      process.stderr.write(`run needs a config file.\n${USAGE}\n`);
+      return 2;
+    }
+    return run(target, connectOptions, values);
+  }
+
+  process.stderr.write(`Unknown command: ${command}\n${USAGE}\n`);
+  return 2;
+}
+
+/* -------------------------------------------------------------------------- */
+
+type Values = Record<string, unknown>;
+
+async function inspect(target: string, connectOptions: ConnectOptions, values: Values): Promise<number> {
+  const failOn = parseFailOn(values['fail-on'] as string | undefined);
   const manifest = await loadManifest(target, connectOptions);
+  const disable = values.disable as string | undefined;
   const analysis = analyse(manifest, {
-    ...(values.disable ? { disable: values.disable.split(',').map((id) => id.trim()) } : {}),
+    ...(disable ? { disable: disable.split(',').map((id) => id.trim()) } : {}),
   });
 
   process.stdout.write(
@@ -93,6 +133,137 @@ async function main(argv: string[]): Promise<number> {
   if (failOn === null) return 0;
   const breached = analysis.findings.some((f) => SEVERITY_RANK[f.severity] >= SEVERITY_RANK[failOn]);
   return breached ? 1 : 0;
+}
+
+async function run(configPath: string, connectOptions: ConnectOptions, values: Values): Promise<number> {
+  const config = applyOverrides(await loadConfig(configPath), values);
+  const json = values.json === true;
+
+  const manifest = await loadManifest(config.target, connectOptions);
+  const replay = values.replay as string | undefined;
+  const provider: Provider = replay
+    ? await ReplayProvider.fromFile(replay)
+    : new AnthropicProvider({ model: config.defaults.model });
+
+  const trials = totalTrials(config);
+  const estimate = await preflight(provider, config, manifest, trials, json);
+
+  if (values['dry-run'] === true) {
+    if (!json) process.stderr.write(pc.dim('  --dry-run: nothing was spent.\n\n'));
+    return 0;
+  }
+
+  if (estimate && !json && values.yes !== true && process.stdin.isTTY) {
+    if (!(await confirm())) {
+      process.stderr.write(pc.dim('  Cancelled.\n'));
+      return 130;
+    }
+  }
+
+  const onProgress = json ? undefined : renderProgress();
+  const report = await runEval(config, manifest, provider, {
+    ...(onProgress ? { onProgress } : {}),
+  });
+  await provider.close?.();
+
+  process.stdout.write(json ? `${formatEvalReportJson(report)}\n` : `${formatEvalReport(report)}\n`);
+
+  // A run that could not measure anything must not look like a pass.
+  const errored = report.scenarios.reduce((sum, s) => sum + s.errors, 0);
+  if (errored === trials) return 2;
+  return report.scenarios.every((s) => s.passed) ? 0 : 1;
+}
+
+/** Price the run before spending, using the free token-counting endpoint. */
+async function preflight(
+  provider: Provider,
+  config: EvalConfig,
+  manifest: Parameters<Provider['runTrial']>[0],
+  trials: number,
+  json: boolean,
+): Promise<CostEstimate | undefined> {
+  if (!provider.estimate) return undefined;
+
+  let estimate: CostEstimate;
+  try {
+    estimate = await provider.estimate(manifest, config.scenarios, trials);
+  } catch (error) {
+    // Missing credentials are the one estimate failure worth stopping for:
+    // every trial would fail the same way a moment later.
+    if (error instanceof CredentialError) throw error;
+    // Otherwise the estimate is a courtesy, not a gate.
+    if (!json) {
+      process.stderr.write(
+        pc.yellow(`  Could not estimate cost: ${error instanceof Error ? error.message : String(error)}\n`),
+      );
+    }
+    return undefined;
+  }
+
+  if (json) return estimate;
+
+  const cost =
+    estimate.estimatedUsd === undefined
+      ? pc.dim('(no price on file for this model)')
+      : `~${formatUsd(estimate.estimatedUsd)}`;
+
+  process.stderr.write(
+    `\n${pc.bold('mcpeval run')}  ${pc.dim(config.path)}\n` +
+      `  ${pc.bold('model')}     ${estimate.model}\n` +
+      pc.dim(`  manifest  ~${estimate.inputTokensPerTrial.toLocaleString()} input tokens per trial\n`) +
+      pc.dim(`  trials    ${trials} across ${config.scenarios.length} scenarios\n`) +
+      `  ${pc.bold('estimate')}  ${cost}\n\n`,
+  );
+  return estimate;
+}
+
+async function confirm(): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const answer = await rl.question('  Proceed? [y/N] ');
+    return /^y(es)?$/i.test(answer.trim());
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * Single-line progress on stderr, so `--json` on stdout stays clean.
+ *
+ * Only when stderr is a terminal: `\r` does nothing in a pipe or a log file,
+ * where it would smear every update onto one unreadable line.
+ */
+function renderProgress() {
+  if (!process.stderr.isTTY) return undefined;
+  return ({ completed, total, scenario }: { completed: number; total: number; scenario: { id: string } }) => {
+    process.stderr.write(`\r${' '.repeat(72)}\r  ${completed}/${total} trials  ${pc.dim(scenario.id)}`);
+    if (completed === total) process.stderr.write('\n');
+  };
+}
+
+function applyOverrides(config: EvalConfig, values: Values): EvalConfig {
+  const model = values.model as string | undefined;
+  const trials = values.trials as string | undefined;
+  if (model === undefined && trials === undefined) return config;
+
+  const parsedTrials = trials === undefined ? undefined : Number(trials);
+  if (parsedTrials !== undefined && (!Number.isInteger(parsedTrials) || parsedTrials < 1)) {
+    throw new Error(`--trials must be a positive integer (got "${trials}")`);
+  }
+
+  return {
+    ...config,
+    defaults: {
+      ...config.defaults,
+      ...(model !== undefined ? { model } : {}),
+      ...(parsedTrials !== undefined ? { trials: parsedTrials } : {}),
+    },
+    // A per-scenario trials override would silently defeat --trials.
+    scenarios:
+      parsedTrials === undefined
+        ? config.scenarios
+        : config.scenarios.map(({ trials: _ignored, ...rest }) => rest),
+  };
 }
 
 function parseFailOn(value: string | undefined): Severity | null {
