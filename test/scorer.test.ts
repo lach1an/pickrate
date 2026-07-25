@@ -17,7 +17,7 @@ let orphanTools: string[];
 
 /** Replay the fixture trials through the provider, exactly as the runner will. */
 before(async () => {
-  config = await loadConfig(fixture('mcpeval.yaml'));
+  config = await loadConfig(fixture('pickrate.yaml'));
   manifest = await loadManifestFromFile(fixture('git-server.json'));
   const provider = await ReplayProvider.fromFile(fixture('trials/git-server.json'));
 

@@ -8,7 +8,7 @@ import { parseTarget, type Target } from './target.js';
 
 export { parseTarget, splitCommand, type Target } from './target.js';
 
-const CLIENT_INFO = { name: 'mcpeval', version: '0.0.0' } as const;
+const CLIENT_INFO = { name: 'pickrate', version: '0.0.0' } as const;
 
 export interface ConnectOptions {
   /** Extra headers for HTTP targets (auth, etc). */

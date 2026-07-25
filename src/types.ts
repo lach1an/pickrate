@@ -81,7 +81,7 @@ export interface Analysis {
 /** A static check over the manifest. Rules never make network or model calls. */
 export interface Rule {
   id: string;
-  /** One line, shown in `mcpeval inspect --explain`. */
+  /** One line, shown in `pickrate inspect --explain`. */
   description: string;
   defaultSeverity: Severity;
   run(manifest: Manifest): Finding[];

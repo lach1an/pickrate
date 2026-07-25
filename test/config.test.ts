@@ -12,13 +12,13 @@ const minimal = {
 
 describe('config', () => {
   it('loads the fixture config', async () => {
-    const config = await loadConfig(fixture('mcpeval.yaml'));
+    const config = await loadConfig(fixture('pickrate.yaml'));
     assert.equal(config.scenarios.length, 4);
     assert.equal(config.defaults.model, 'claude-haiku-4-5');
   });
 
   it('resolves a file manifest relative to the config, not the cwd', async () => {
-    const config = await loadConfig(fixture('mcpeval.yaml'));
+    const config = await loadConfig(fixture('pickrate.yaml'));
     assert.ok(config.target.endsWith('/test/fixtures/git-server.json'), config.target);
   });
 

@@ -1,7 +1,7 @@
 # A ready-to-run eval against the official filesystem MCP server.
 #
-#   npx mcpeval run examples/filesystem.yaml --dry-run   # price it, spend nothing
-#   npx mcpeval run examples/filesystem.yaml             # run it
+#   npx pickrate run examples/filesystem.yaml --dry-run   # price it, spend nothing
+#   npx pickrate run examples/filesystem.yaml             # run it
 #
 # Trials are set low so this costs a fraction of a cent. Raise to 20 (the
 # spec's default) once you care about the numbers — a 3-trial pass rate has a
@@ -30,7 +30,7 @@ scenarios:
       tool: list_directory
 
   # `list_directory` and `list_directory_with_sizes` describe themselves 67%
-  # alike (mcpeval inspect flags the pair). This scenario is where that shows
+  # alike (pickrate inspect flags the pair). This scenario is where that shows
   # up as a real selection failure rather than a lint warning.
   - id: list-with-sizes
     prompt: "how big is each file in /tmp?"

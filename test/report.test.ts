@@ -12,7 +12,7 @@ import type { EvalReport } from '../src/types.js';
 const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
 
 async function replayReport(): Promise<EvalReport> {
-  const config = await loadConfig(fixture('mcpeval.yaml'));
+  const config = await loadConfig(fixture('pickrate.yaml'));
   const manifest = await loadManifestFromFile(fixture('git-server.json'));
   const provider = await ReplayProvider.fromFile(fixture('trials/git-server.json'));
   return runEval(config, manifest, provider);

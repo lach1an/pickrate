@@ -1,6 +1,6 @@
 # MCP Agent Evaluation Harness — Project Spec
 
-**Working name:** TBD (`mcpeval`, `toolcheck`, `manifest` all plausible)
+**Name:** `pickrate` — settled 25 July 2026, see [`skills-adapter-plan.md`](skills-adapter-plan.md) §11. (Was `mcpeval`; `toolcheck` and `manifest` also considered.)
 **Status:** Draft v0.1 — pre-code
 **Date:** 25 July 2026
 
@@ -139,7 +139,7 @@ They're different bugs with different fixes:
 Declarative first. A DSL can come later if anyone asks.
 
 ```yaml
-# mcpeval.yaml
+# pickrate.yaml
 server:
   transport: stdio
   command: node ./build/index.js
@@ -291,7 +291,7 @@ Sized for a few hours a week. Each milestone ships on its own.
 
 ### M1 — Analyser only (weekends 1–2)
 
-`mcpeval inspect <server>` → connect, pull the manifest, print token cost and lint warnings.
+`pickrate inspect <server>` → connect, pull the manifest, print token cost and lint warnings.
 
 **No API key, no model calls, no cost.** This is deliberate: the barrier to someone trying it is `npx` and nothing else. Most tools in this space ask for credentials before showing value. Not asking is a feature.
 

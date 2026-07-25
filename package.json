@@ -1,11 +1,11 @@
 {
-  "name": "mcpeval",
+  "name": "pickrate",
   "version": "0.0.0",
   "description": "Does an agent actually use your MCP server correctly? Zero-config manifest linting and tool-selection evals.",
   "type": "module",
   "license": "MIT",
   "bin": {
-    "mcpeval": "./dist/cli.js"
+    "pickrate": "./dist/cli.js"
   },
   "main": "./dist/index.js",
   "exports": {

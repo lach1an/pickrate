@@ -15,7 +15,7 @@ const BAR_WIDTH = 16;
 export function formatEvalReport(report: EvalReport): string {
   const out: string[] = [''];
 
-  out.push(`${pc.bold('mcpeval run')}  ${pc.dim(report.source.target)}`);
+  out.push(`${pc.bold('pickrate run')}  ${pc.dim(report.source.target)}`);
   // The model under test is part of the result — never bury it.
   out.push(`  ${pc.bold('model')}     ${report.model}`);
   if (report.source.serverInfo) {

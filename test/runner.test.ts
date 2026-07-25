@@ -59,7 +59,7 @@ describe('runEval', () => {
   it('runs the first trial alone so the prompt cache can be written', async () => {
     // Firing every trial at once means none can read the cache the others are
     // still writing — the whole run then pays full price for the manifest.
-    const config = await loadConfig(fixture('mcpeval.yaml'));
+    const config = await loadConfig(fixture('pickrate.yaml'));
     const manifest = await loadManifestFromFile(fixture('git-server.json'));
     const provider = new SpyProvider();
 
@@ -73,7 +73,7 @@ describe('runEval', () => {
   });
 
   it('runs every scenario for its own trial count', async () => {
-    const config = await loadConfig(fixture('mcpeval.yaml'));
+    const config = await loadConfig(fixture('pickrate.yaml'));
     const manifest = await loadManifestFromFile(fixture('git-server.json'));
     const provider = new SpyProvider();
 
@@ -86,7 +86,7 @@ describe('runEval', () => {
   });
 
   it('reports progress for every trial', async () => {
-    const config = await loadConfig(fixture('mcpeval.yaml'));
+    const config = await loadConfig(fixture('pickrate.yaml'));
     const manifest = await loadManifestFromFile(fixture('git-server.json'));
     const seen: number[] = [];
 

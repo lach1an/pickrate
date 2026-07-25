@@ -18,7 +18,7 @@ export function formatAnalysis(analysis: Analysis): string {
   const { source, tokens, findings } = analysis;
 
   out.push('');
-  out.push(`${pc.bold('mcpeval inspect')}  ${pc.dim(source.target)}`);
+  out.push(`${pc.bold('pickrate inspect')}  ${pc.dim(source.target)}`);
   if (source.serverInfo) {
     out.push(pc.dim(`  server    ${source.serverInfo.name} ${source.serverInfo.version}`));
   }

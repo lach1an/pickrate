@@ -1,10 +1,10 @@
-# mcpeval — working notes
+# pickrate — working notes
 
 Full spec: [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md). Read it before making design decisions; it settles most of them.
 
 ## Current state
 
-**M1 (analyser) and M2 (runner + scorer) — complete.** `mcpeval inspect <target>` reports token cost and lint findings; `mcpeval run <config.yaml>` runs scenarios × trials against a model and reports pass rates, confusion pairs, orphan tools and flakiness.
+**M1 (analyser) and M2 (runner + scorer) — complete.** `pickrate inspect <target>` reports token cost and lint findings; `pickrate run <config.yaml>` runs scenarios × trials against a model and reports pass rates, confusion pairs, orphan tools and flakiness.
 M3 (mutator) and M4 (CI) are not started.
 
 ## Invariants
@@ -43,12 +43,12 @@ Current SDK (`1.29.0`) still negotiates protocol `2025-11-25` and still does the
 Two kinds, both so components can be developed with no server and no API spend:
 
 - `test/fixtures/*.json` — captured `tools/list` responses, read by `loadManifestFromFile`. `git-server.json` is deliberately clean (a test asserts zero warnings); `messy-server.json` deliberately trips every analyser rule.
-- `test/fixtures/trials/*.json` — recorded `TrialResult[]`, replayed by `ReplayProvider`. `git-server.json` covers a clean scenario, a confusion pair, a restraint miss, an argument mismatch and an errored trial. `test/fixtures/mcpeval.yaml` pairs with both.
+- `test/fixtures/trials/*.json` — recorded `TrialResult[]`, replayed by `ReplayProvider`. `git-server.json` covers a clean scenario, a confusion pair, a restraint miss, an argument mismatch and an errored trial. `test/fixtures/pickrate.yaml` pairs with both.
 
 Together they run the whole eval pipeline offline:
 
 ```bash
-npm run dev -- run test/fixtures/mcpeval.yaml --replay test/fixtures/trials/git-server.json
+npm run dev -- run test/fixtures/pickrate.yaml --replay test/fixtures/trials/git-server.json
 ```
 
 They are also the seed corpus for M3's mutation testing — a mutation run scores a damaged manifest against this recorded baseline.

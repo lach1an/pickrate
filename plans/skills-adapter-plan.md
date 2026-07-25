@@ -185,7 +185,7 @@ Everything else in the runner — warm-then-fan-out, bounded concurrency, never-
 
 ## 5. Analyser — a deliberate, bounded deviation from §11
 
-§11 assumes skills static analysis is covered by the ecosystem (SkillReducer, skill-creator) and has the adapter enter at the runner. I'd deviate on a narrow front, for two reasons: `mcpeval inspect ./.claude/skills` printing nothing is a bad first run and the first run is the distribution strategy; and §11 itself names the 1024-character limit as "a real constraint to lint against". Those tools also *optimise* — this *measures*, and a measurement of a hard limit is not the same product.
+§11 assumes skills static analysis is covered by the ecosystem (SkillReducer, skill-creator) and has the adapter enter at the runner. I'd deviate on a narrow front, for two reasons: `pickrate inspect ./.claude/skills` printing nothing is a bad first run and the first run is the distribution strategy; and §11 itself names the 1024-character limit as "a real constraint to lint against". Those tools also *optimise* — this *measures*, and a measurement of a hard limit is not the same product.
 
 So: a small skills rule set, no more.
 
@@ -275,7 +275,7 @@ Each step leaves the tree green and the MCP path working.
 | 5 | Skills presenter (both modes) + runner/provider wiring | `run` works on skills. |
 | 6 | Reporter, `SCHEMA_VERSION` 2, CLI `--adapter`, docs | |
 
-Steps 1–4 are the natural first release. `mcpeval inspect ./.claude/skills` telling someone six of their thirty skills can never trigger is a finding they will act on, needs no credentials, and reaches a much larger audience than the MCP side — which is §11's "momentum lives in skills" argument, cashed out as a shipping order.
+Steps 1–4 are the natural first release. `pickrate inspect ./.claude/skills` telling someone six of their thirty skills can never trigger is a finding they will act on, needs no credentials, and reaches a much larger audience than the MCP side — which is §11's "momentum lives in skills" argument, cashed out as a shipping order.
 
 ---
 

@@ -22,7 +22,7 @@ export interface RunOptions {
 /**
  * Run every scenario × trial and score the result.
  *
- * The one part of mcpeval that spends money, so two properties matter more
+ * The one part of pickrate that spends money, so two properties matter more
  * than throughput:
  *
  *  - **Warm, then fan out.** A cache entry only becomes readable once the

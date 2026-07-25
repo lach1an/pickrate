@@ -2,7 +2,7 @@
  * Run `tasks` with at most `limit` in flight, preserving result order.
  *
  * Deliberately dependency-free and deliberately small — the runner is the only
- * part of mcpeval that costs money, so its scheduling should be readable at a
+ * part of pickrate that costs money, so its scheduling should be readable at a
  * glance rather than delegated.
  */
 export async function mapPool<T, R>(
