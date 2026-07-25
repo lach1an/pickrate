@@ -46,6 +46,13 @@ export {
   exitCodeFor,
   trialCounts,
 } from './ci/gates.js';
+export { diffReports, isDatedSnapshot, STALE_DAYS, type CompareOptions } from './ci/compare.js';
+export {
+  readReportFile,
+  parseReportFile,
+  BaselineError,
+  type StoredReport,
+} from './ci/report-file.js';
 export {
   costOf,
   PRICES,

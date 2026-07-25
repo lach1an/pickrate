@@ -13,6 +13,8 @@ import {
   evaluateRunGates,
   exitCodeFor,
 } from './ci/gates.js';
+import { diffReports } from './ci/compare.js';
+import { readReportFile } from './ci/report-file.js';
 import { Exit, type ExitCode } from './exit.js';
 import { AnthropicProvider, CredentialError } from './provider/anthropic.js';
 import { formatUsd } from './provider/pricing.js';
@@ -43,7 +45,8 @@ import { formatAnalysis } from './report/table.js';
 import { runEval, totalTrials } from './runner/index.js';
 import type { CiGates, EvalConfig, GateResult, Severity, SurfaceKind } from './types.js';
 
-const VERSION = '0.0.0';
+/** Duplicated from `package.json`; the schema-freeze test asserts they match. */
+export const VERSION = '0.0.0';
 
 const USAGE = `
 ${pc.bold('pickrate')} — does an agent actually pick your tools and skills correctly?
@@ -271,14 +274,25 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
   });
   await provider.close?.();
 
+  const ci = gatesFor(config.ci, values);
+  const baseline = values.baseline as string | undefined;
+  const diff =
+    baseline === undefined
+      ? undefined
+      : diffReports(
+          await readReportFile(baseline),
+          report,
+          ci.maxRegression !== undefined ? { maxRegression: ci.maxRegression } : {},
+        );
+
   // A run that could not measure anything must not look like a pass — which is
   // the `max-error-rate` gate's whole job, and it is on by default.
-  const gates = evaluateRunGates(report, gatesFor(config.ci, values));
+  const gates = evaluateRunGates(report, ci, diff);
 
   await emit(format, values, {
-    table: () => formatEvalReport(report),
-    json: () => formatEvalReportJson(report, { gates }),
-    markdown: () => formatEvalMarkdown(report, gates),
+    table: () => formatEvalReport(report, diff),
+    json: () => formatEvalReportJson(report, { gates, ...(diff ? { diff } : {}) }),
+    markdown: () => formatEvalMarkdown(report, gates, diff),
     gates,
   });
 

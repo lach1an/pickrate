@@ -117,6 +117,57 @@ describe('gates from the config file', () => {
   });
 });
 
+describe('--baseline', () => {
+  const BASELINE = fixture('reports/git-server-baseline.json');
+
+  it('is 1 for a regression: measured, and the answer is bad', async () => {
+    const { code, stdout } = await cli('run', fixture('pickrate.yaml'), ...REPLAY, '--baseline', BASELINE, '--json');
+    const parsed = JSON.parse(stdout);
+
+    assert.equal(code, Exit.Failed);
+    assert.equal(parsed.diff.scenarios.filter((s: { regressed: boolean }) => s.regressed).length, 1);
+  });
+
+  it('is 2 for a baseline it refuses to compare against', async () => {
+    // A skills run against a baseline recorded on an MCP surface. Nothing was
+    // measured wrongly — we declined to compare — and sending that to CI as a
+    // failing eval would point the reader at the wrong thing entirely.
+    const { code } = await cli(
+      'run',
+      fixture('skills-eval.yaml'),
+      '--replay',
+      fixture('trials/skills.json'),
+      '--baseline',
+      BASELINE,
+    );
+    assert.equal(code, Exit.Unmeasured);
+  });
+
+  it('is 2 for a baseline that is not there', async () => {
+    const { code } = await cli('run', fixture('pickrate.yaml'), ...REPLAY, '--baseline', fixture('nope.json'));
+    assert.equal(code, Exit.Unmeasured);
+  });
+
+  it('stops calling it a regression when the tolerance is widened past the drop', async () => {
+    const { code, stdout } = await cli(
+      'run',
+      fixture('pickrate.yaml'),
+      ...REPLAY,
+      '--baseline',
+      BASELINE,
+      '--max-regression',
+      '0.5',
+      '--json',
+    );
+    const gates: Array<{ id: string; passed: boolean }> = JSON.parse(stdout).gates;
+
+    assert.equal(gates.find((gate) => gate.id === 'max-regression')!.passed, true);
+    // Still exit 1 — the per-scenario thresholds fail on this fixture whatever
+    // the baseline says. The regression is simply no longer one of the reasons.
+    assert.equal(code, Exit.Failed);
+  });
+});
+
 describe('--out', () => {
   it('writes JSON whatever went to stdout', async () => {
     const path = join(mkdtempSync(join(tmpdir(), 'pickrate-')), 'report.json');
