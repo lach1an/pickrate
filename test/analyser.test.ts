@@ -15,22 +15,24 @@ const rulesFired = (analysis: Analysis) => new Set(analysis.findings.map((f) => 
 
 describe('analyser', () => {
   it('reads a manifest from a captured tools/list response', async () => {
-    const manifest = await loadManifestFromFile(fixture('git-server'));
-    assert.equal(manifest.tools.length, 3);
+    const surface = await loadManifestFromFile(fixture('git-server'));
+    assert.equal(surface.kind, 'mcp');
+    assert.equal(surface.items.length, 3);
+    assert.ok(surface.items.every((item) => item.kind === 'tool'));
     assert.deepEqual(
-      manifest.tools.map((t) => t.name),
+      surface.items.map((t) => t.name),
       ['create_branch', 'delete_branch', 'list_branches'],
     );
   });
 
-  it('reports a token cost that sums the per-tool breakdown', async () => {
+  it('reports a token cost that sums the per-item breakdown', async () => {
     const { tokens } = await analyseFixture('git-server');
     assert.ok(tokens.total > 0);
     assert.equal(
       tokens.total,
-      tokens.perTool.reduce((sum, t) => sum + t.tokens, 0),
+      tokens.perItem.reduce((sum, t) => sum + t.tokens, 0),
     );
-    assert.ok(tokens.perTool.every((t, i, all) => i === 0 || all[i - 1]!.tokens >= t.tokens));
+    assert.ok(tokens.perItem.every((t, i, all) => i === 0 || all[i - 1]!.tokens >= t.tokens));
   });
 
   it('finds nothing to complain about in a well-written manifest', async () => {
@@ -56,14 +58,14 @@ describe('analyser', () => {
     }
   });
 
-  it('anchors findings to the tool and parameter they concern', async () => {
+  it('anchors findings to the item and parameter they concern', async () => {
     const analysis = await analyseFixture('messy-server');
 
     const missingDesc = analysis.findings.find((f) => f.rule === 'missing-tool-description');
-    assert.equal(missingDesc?.tool, 'op_7');
+    assert.equal(missingDesc?.item, 'op_7');
 
     const missingParam = analysis.findings.find(
-      (f) => f.rule === 'missing-param-description' && f.tool === 'op_7',
+      (f) => f.rule === 'missing-param-description' && f.item === 'op_7',
     );
     assert.equal(missingParam?.path, 'target');
 
@@ -80,8 +82,8 @@ describe('analyser', () => {
   });
 
   it('honours disabled rules', async () => {
-    const manifest = await loadManifestFromFile(fixture('messy-server'));
-    const analysis = analyse(manifest, { disable: ['missing-tool-description'] });
+    const surface = await loadManifestFromFile(fixture('messy-server'));
+    const analysis = analyse(surface, { disable: ['missing-tool-description'] });
     assert.ok(!rulesFired(analysis).has('missing-tool-description'));
   });
 });

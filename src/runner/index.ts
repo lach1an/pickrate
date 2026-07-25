@@ -1,7 +1,7 @@
 import { trialsFor } from '../config/index.js';
 import { costOf } from '../provider/pricing.js';
 import { scoreRun, totalUsage, type ScoreOptions } from '../scorer/index.js';
-import type { EvalConfig, EvalReport, Manifest, Scenario, TrialResult } from '../types.js';
+import type { EvalConfig, EvalReport, Scenario, Surface, TrialResult } from '../types.js';
 import type { Provider } from '../provider/index.js';
 import { mapPool } from './pool.js';
 
@@ -22,19 +22,19 @@ export interface RunOptions {
 /**
  * Run every scenario × trial and score the result.
  *
- * The one part of mcpeval that spends money, so two properties matter more
+ * The one part of pickrate that spends money, so two properties matter more
  * than throughput:
  *
  *  - **Warm, then fan out.** A cache entry only becomes readable once the
  *    first response has come back. Firing N requests at once means all N pay
- *    full price for the manifest. So trial 1 runs alone; the rest follow.
+ *    full price for the surface. So trial 1 runs alone; the rest follow.
  *  - **Never retry a result.** Transport retries live in the provider's SDK
  *    client. A trial that picked the "wrong" tool is data, and retrying it
  *    until it looks better would bias every pass rate upward, invisibly.
  */
 export async function runEval(
   config: EvalConfig,
-  manifest: Manifest,
+  surface: Surface,
   provider: Provider,
   options: RunOptions = {},
 ): Promise<EvalReport> {
@@ -59,13 +59,13 @@ export async function runEval(
   // rest go out in parallel. Skipping this makes a run roughly 10× dearer.
   const first = jobs[0];
   if (first) {
-    const trial = await provider.runTrial(manifest, first.scenario);
+    const trial = await provider.runTrial(surface, first.scenario);
     results.push(trial);
     report(first.scenario, trial);
   }
 
   const rest = await mapPool(jobs.slice(1), config.defaults.concurrency, async (job) => {
-    const trial = await provider.runTrial(manifest, job.scenario);
+    const trial = await provider.runTrial(surface, job.scenario);
     report(job.scenario, trial);
     return trial;
   });
@@ -76,10 +76,10 @@ export async function runEval(
   for (const trial of results) trialsByScenario.get(trial.scenarioId)?.push(trial);
 
   const durationMs = performance.now() - started;
-  const { scenarios, orphanTools } = scoreRun(
+  const { scenarios, orphans } = scoreRun(
     {
       config,
-      manifest,
+      surface,
       model: provider.model,
       trialsByScenario,
       startedAt: startedAt.toISOString(),
@@ -92,11 +92,11 @@ export async function runEval(
   const costUsd = costOf(provider.model, usage);
 
   return {
-    source: manifest.source,
+    source: surface.source,
     model: provider.model,
     trials: config.defaults.trials,
     scenarios,
-    orphanTools,
+    orphans,
     usage,
     ...(costUsd !== undefined ? { costUsd } : {}),
     startedAt: startedAt.toISOString(),

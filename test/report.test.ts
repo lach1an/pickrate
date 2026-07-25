@@ -12,7 +12,7 @@ import type { EvalReport } from '../src/types.js';
 const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
 
 async function replayReport(): Promise<EvalReport> {
-  const config = await loadConfig(fixture('mcpeval.yaml'));
+  const config = await loadConfig(fixture('pickrate.yaml'));
   const manifest = await loadManifestFromFile(fixture('git-server.json'));
   const provider = await ReplayProvider.fromFile(fixture('trials/git-server.json'));
   return runEval(config, manifest, provider);
@@ -26,7 +26,7 @@ describe('eval report', () => {
     assert.equal(parsed.command, 'run');
     assert.equal(typeof parsed.model, 'string');
     assert.deepEqual(parsed.summary, { scenarios: 4, failed: 3, flaky: 2, errored: 1 });
-    assert.deepEqual(parsed.orphanTools, ['delete_branch']);
+    assert.deepEqual(parsed.orphans, ['delete_branch']);
     assert.equal(typeof parsed.usage.cacheReadInputTokens, 'number');
   });
 
@@ -40,12 +40,12 @@ describe('eval report', () => {
     // it, so what to fix must outrank how well you scored.
     const text = stripAnsi(formatEvalReport(await replayReport()));
     const confusion = text.indexOf('confusion');
-    const orphans = text.indexOf('orphan tools');
+    const orphans = text.indexOf('orphans');
     const summary = text.indexOf('below threshold');
 
     assert.ok(confusion > 0 && orphans > 0 && summary > 0);
     assert.ok(confusion < summary, 'confusion pairs must precede the summary');
-    assert.ok(orphans < summary, 'orphan tools must precede the summary');
+    assert.ok(orphans < summary, 'orphans must precede the summary');
   });
 
   it('surfaces the argument/selection split when they disagree', async () => {

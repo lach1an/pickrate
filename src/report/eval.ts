@@ -15,7 +15,7 @@ const BAR_WIDTH = 16;
 export function formatEvalReport(report: EvalReport): string {
   const out: string[] = [''];
 
-  out.push(`${pc.bold('mcpeval run')}  ${pc.dim(report.source.target)}`);
+  out.push(`${pc.bold('pickrate run')}  ${pc.dim(report.source.target)}`);
   // The model under test is part of the result — never bury it.
   out.push(`  ${pc.bold('model')}     ${report.model}`);
   if (report.source.serverInfo) {
@@ -39,7 +39,7 @@ export function formatEvalReport(report: EvalReport): string {
     out.push('');
   }
 
-  const orphans = formatOrphans(report.orphanTools);
+  const orphans = formatOrphans(report.orphans);
   if (orphans) {
     out.push(orphans);
     out.push('');
@@ -104,11 +104,11 @@ function formatConfusion(scenarios: ScenarioScore[]): string | undefined {
   return [pc.dim('  confusion'), ...lines].join('\n');
 }
 
-function formatOrphans(orphanTools: string[]): string | undefined {
-  if (orphanTools.length === 0) return undefined;
+function formatOrphans(orphans: string[]): string | undefined {
+  if (orphans.length === 0) return undefined;
   return [
-    pc.dim('  orphan tools'),
-    ...orphanTools.map((name) => `    ${pc.yellow('·')} ${name}`),
+    pc.dim('  orphans'),
+    ...orphans.map((name) => `    ${pc.yellow('·')} ${name}`),
     pc.dim('    Never selected by any scenario — context you pay for on every call.'),
     pc.dim('    Only as good as your scenario coverage.'),
   ].join('\n');

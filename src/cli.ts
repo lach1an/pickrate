@@ -18,11 +18,11 @@ import type { EvalConfig, Severity } from './types.js';
 const VERSION = '0.0.0';
 
 const USAGE = `
-${pc.bold('mcpeval')} — does an agent actually use your MCP server correctly?
+${pc.bold('pickrate')} — does an agent actually use your MCP server correctly?
 
 ${pc.bold('Usage')}
-  mcpeval inspect <target> [options]     static analysis — no API key, no cost
-  mcpeval run <config.yaml> [options]    tool-selection eval — needs a model
+  pickrate inspect <target> [options]     static analysis — no API key, no cost
+  pickrate run <config.yaml> [options]    tool-selection eval — needs a model
 
 ${pc.bold('Targets')}
   "node ./build/index.js"        stdio server (quote the whole command)
@@ -208,7 +208,7 @@ async function preflight(
       : `~${formatUsd(estimate.estimatedUsd)}`;
 
   process.stderr.write(
-    `\n${pc.bold('mcpeval run')}  ${pc.dim(config.path)}\n` +
+    `\n${pc.bold('pickrate run')}  ${pc.dim(config.path)}\n` +
       `  ${pc.bold('model')}     ${estimate.model}\n` +
       pc.dim(`  manifest  ~${estimate.inputTokensPerTrial.toLocaleString()} input tokens per trial\n`) +
       pc.dim(`  trials    ${trials} across ${config.scenarios.length} scenarios\n`) +

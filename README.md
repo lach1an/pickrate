@@ -1,23 +1,23 @@
-# mcpeval
+# pickrate
 
 **Does an agent actually use your MCP server correctly?**
 
 A tool manifest is a prompt. Names, descriptions and schemas are the entire interface a model reasons over — no type checking, no compiler, no linter. So MCP servers fail in ways ordinary APIs don't: the model picks the wrong tool, invents an argument format, or never calls your tool at all while your integration tests all pass.
 
-`mcpeval` measures that.
+`pickrate` measures that.
 
 > Status: **M2 complete.** `inspect` (static analysis) and `run` (tool-selection eval) both work. The mutator is not built yet — see [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md).
 
 ## Quick start
 
 ```bash
-npx mcpeval inspect "npx -y @modelcontextprotocol/server-filesystem /tmp"
+npx pickrate inspect "npx -y @modelcontextprotocol/server-filesystem /tmp"
 ```
 
 **No API key. No model calls. No cost.** That's deliberate — `inspect` is static analysis, and the barrier to trying it should be `npx` and nothing else.
 
 ```
-mcpeval inspect  npx -y @modelcontextprotocol/server-filesystem /tmp
+pickrate inspect  npx -y @modelcontextprotocol/server-filesystem /tmp
   server    secure-filesystem-server 0.2.0
   tools     14
   context   ~1,731 tokens per session (o200k_base, approximate)
@@ -59,19 +59,19 @@ mcpeval inspect  npx -y @modelcontextprotocol/server-filesystem /tmp
 --timeout <ms>          connection budget (default: 30000)
 ```
 
-## `mcpeval run` — does a model actually use it correctly?
+## `pickrate run` — does a model actually use it correctly?
 
 `inspect` tells you the manifest is well-formed. `run` puts a model in the loop and measures whether it picks the right tool.
 
 ```bash
-npx mcpeval run examples/filesystem.yaml --dry-run   # price it, spend nothing
-npx mcpeval run examples/filesystem.yaml
+npx pickrate run examples/filesystem.yaml --dry-run   # price it, spend nothing
+npx pickrate run examples/filesystem.yaml
 ```
 
 This one needs model access — `ANTHROPIC_API_KEY`, or an `ant auth login` profile.
 
 ```
-mcpeval run  npx -y @modelcontextprotocol/server-filesystem /tmp
+pickrate run  npx -y @modelcontextprotocol/server-filesystem /tmp
   model     claude-haiku-4-5
   trials    3 × 6 scenarios in 8.2s
   cost      ~<$0.01  (412 in / 1,088 out, 21,600 cached)
@@ -145,7 +145,7 @@ Per-scenario `threshold` matters: a higher bar for destructive operations than f
 
 | Rule | Default | What it catches |
 |---|---|---|
-| `manifest-token-budget` | warn/error | The whole manifest is injected into context on every call |
+| `token-budget` | warn/error | The whole surface is injected into context on every call |
 | `missing-tool-description` | error | The model has only the name to go on |
 | `thin-tool-description` | warn | Under four words disambiguates nothing |
 | `near-duplicate-description` | warn | The classic wrong-tool-selected failure |
@@ -164,7 +164,7 @@ npm run typecheck
 npm run build
 
 # The whole eval pipeline, offline: no server, no API key, no spend.
-npm run dev -- run test/fixtures/mcpeval.yaml \
+npm run dev -- run test/fixtures/pickrate.yaml \
   --replay test/fixtures/trials/git-server.json
 ```
 
@@ -176,7 +176,7 @@ Fixtures in `test/fixtures/` let every component be developed with no server run
 src/
   connector/   speaks MCP — the ONLY place that imports the MCP SDK
   analyser/    static rules + token counting (M1)
-  config/      mcpeval.yaml parsing and validation
+  config/      pickrate.yaml parsing and validation
   provider/    asks a model — the ONLY place that imports a model SDK
   runner/      N trials × M scenarios, bounded concurrency
   scorer/      pass rates, confusion matrix, orphans, flakiness

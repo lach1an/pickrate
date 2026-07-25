@@ -3,12 +3,12 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import type { JsonSchema, Manifest, ManifestSource, ToolDef } from '../types.js';
+import type { JsonSchema, Surface, SurfaceSource, ToolDef } from '../types.js';
 import { parseTarget, type Target } from './target.js';
 
 export { parseTarget, splitCommand, type Target } from './target.js';
 
-const CLIENT_INFO = { name: 'mcpeval', version: '0.0.0' } as const;
+const CLIENT_INFO = { name: 'pickrate', version: '0.0.0' } as const;
 
 export interface ConnectOptions {
   /** Extra headers for HTTP targets (auth, etc). */
@@ -22,7 +22,7 @@ export interface ConnectOptions {
 /**
  * The one place that knows MCP exists.
  *
- * Everything downstream consumes `Manifest`, so the `2026-07-28` transition
+ * Everything downstream consumes `Surface`, so the `2026-07-28` transition
  * (stateless, no handshake, `Mcp-Method`/`Mcp-Name` routing headers) should be
  * contained to this file plus a transport swap.
  *
@@ -33,7 +33,7 @@ export interface ConnectOptions {
 export async function loadManifest(
   target: string | Target,
   options: ConnectOptions = {},
-): Promise<Manifest> {
+): Promise<Surface> {
   const t = typeof target === 'string' ? parseTarget(target) : target;
   if (t.kind === 'file') return loadManifestFromFile(t.path);
 
@@ -57,22 +57,23 @@ export async function loadManifest(
     } while (cursor !== undefined);
 
     const serverInfo = client.getServerVersion();
-    const source: ManifestSource = {
+    const source: SurfaceSource = {
       kind: t.kind,
+      adapter: 'mcp',
       target: t.display,
       fetchedAt: new Date().toISOString(),
       ...(serverInfo ? { serverInfo: { name: serverInfo.name, version: serverInfo.version } } : {}),
       ...(protocolVersionOf(transport) ? { protocolVersion: protocolVersionOf(transport)! } : {}),
     };
 
-    return { tools, source };
+    return { kind: 'mcp', items: tools, source };
   } finally {
     await client.close().catch(() => {});
   }
 }
 
 /** Read a captured `tools/list` response. Lets the analyser run with no server. */
-export async function loadManifestFromFile(path: string): Promise<Manifest> {
+export async function loadManifestFromFile(path: string): Promise<Surface> {
   const parsed: unknown = JSON.parse(await readFile(path, 'utf8'));
   const tools = Array.isArray(parsed)
     ? parsed
@@ -85,8 +86,9 @@ export async function loadManifestFromFile(path: string): Promise<Manifest> {
   }
 
   return {
-    tools: tools.map((tool) => normaliseTool(tool as Record<string, unknown>)),
-    source: { kind: 'file', target: path, fetchedAt: new Date().toISOString() },
+    kind: 'mcp',
+    items: tools.map((tool) => normaliseTool(tool as Record<string, unknown>)),
+    source: { kind: 'file', adapter: 'mcp', target: path, fetchedAt: new Date().toISOString() },
   };
 }
 
@@ -116,6 +118,7 @@ function normaliseTool(tool: Record<string, unknown>): ToolDef {
   const outputSchema = isObject(tool.outputSchema) ? (tool.outputSchema as JsonSchema) : undefined;
 
   return {
+    kind: 'tool',
     name,
     inputSchema,
     raw: tool,

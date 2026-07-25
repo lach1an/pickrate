@@ -2,10 +2,10 @@ import { thresholdFor } from '../config/index.js';
 import { sumUsage } from '../provider/pricing.js';
 import type {
   EvalConfig,
-  Manifest,
   Rate,
   Scenario,
   ScenarioScore,
+  Surface,
   ToolCall,
   TrialResult,
 } from '../types.js';
@@ -114,7 +114,7 @@ export function scoreScenario(
 
 export interface ScoreRunInput {
   config: EvalConfig;
-  manifest: Manifest;
+  surface: Surface;
   model: string;
   trialsByScenario: Map<string, TrialResult[]>;
   startedAt: string;
@@ -124,7 +124,7 @@ export interface ScoreRunInput {
 /** Score a whole run and assemble the report. */
 export function scoreRun(input: ScoreRunInput, options: ScoreOptions = {}): {
   scenarios: ScenarioScore[];
-  orphanTools: string[];
+  orphans: string[];
 } {
   const scenarios = input.config.scenarios.map((scenario) =>
     scoreScenario(
@@ -135,17 +135,20 @@ export function scoreRun(input: ScoreRunInput, options: ScoreOptions = {}): {
     ),
   );
 
-  return { scenarios, orphanTools: findOrphanTools(input.manifest, input.trialsByScenario) };
+  return { scenarios, orphans: findOrphans(input.surface, input.trialsByScenario) };
 }
 
 /**
- * Tools the model never once selected, under any scenario.
+ * Items the model never once selected, under any scenario.
  *
  * Dead weight: you pay their tokens on every single call and get nothing. This
  * is only as good as the scenario coverage, so the report says so.
+ *
+ * On the skills side this is the metric behind the reported "45% of installed
+ * skills never trigger" — same computation, larger corpus.
  */
-export function findOrphanTools(
-  manifest: Manifest,
+export function findOrphans(
+  surface: Surface,
   trialsByScenario: Map<string, TrialResult[]>,
 ): string[] {
   const selected = new Set<string>();
@@ -154,7 +157,7 @@ export function findOrphanTools(
       for (const call of trial.calls) selected.add(call.name);
     }
   }
-  return manifest.tools.map((tool) => tool.name).filter((name) => !selected.has(name));
+  return surface.items.map((item) => item.name).filter((name) => !selected.has(name));
 }
 
 /** Total usage across every trial in a run. */

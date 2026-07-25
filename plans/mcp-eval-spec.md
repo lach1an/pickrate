@@ -1,6 +1,6 @@
 # MCP Agent Evaluation Harness — Project Spec
 
-**Working name:** TBD (`mcpeval`, `toolcheck`, `manifest` all plausible)
+**Name:** `pickrate` — settled 25 July 2026, see [`skills-adapter-plan.md`](skills-adapter-plan.md) §11. (Was `mcpeval`; `toolcheck` and `manifest` also considered.)
 **Status:** Draft v0.1 — pre-code
 **Date:** 25 July 2026
 
@@ -139,7 +139,7 @@ They're different bugs with different fixes:
 Declarative first. A DSL can come later if anyone asks.
 
 ```yaml
-# mcpeval.yaml
+# pickrate.yaml
 server:
   transport: stdio
   command: node ./build/index.js
@@ -267,7 +267,7 @@ Five components, deliberately decoupled.
           └──────────────┘
 ```
 
-**Connector** — thin. Isolate it hard, because the SDKs targeting `2026-07-28` will churn for a few months. Everything else should be testable against a fixture manifest with no server running.
+**Connector** — thin, and as of §11 an **adapter interface** rather than an MCP-specific component. Isolate it hard, because the SDKs targeting `2026-07-28` will churn for a few months. Everything else should be testable against a fixture manifest with no server running.
 
 **Analyser** — static, no model calls, sub-second, no API key required:
 - Total manifest token count, and per-tool breakdown
@@ -291,7 +291,7 @@ Sized for a few hours a week. Each milestone ships on its own.
 
 ### M1 — Analyser only (weekends 1–2)
 
-`mcpeval inspect <server>` → connect, pull the manifest, print token cost and lint warnings.
+`pickrate inspect <server>` → connect, pull the manifest, print token cost and lint warnings.
 
 **No API key, no model calls, no cost.** This is deliberate: the barrier to someone trying it is `npx` and nothing else. Most tools in this space ask for credentials before showing value. Not asking is a feature.
 
@@ -343,3 +343,73 @@ Not revenue. For a project at this stage, the honest bar is:
 - They change their tool descriptions because of it
 
 If that happens three times, the project is real. If it doesn't, you've spent five weekends learning MCP properly, which was worth it anyway.
+
+---
+
+## 11. Update — 25 July 2026: Agent Skills as a second adapter
+
+**Change:** the core is no longer MCP-specific. MCP servers and Agent Skills are two instances of one problem, and the engine should be adapter-based from the start.
+
+**Assumption carried into this section:** the static-analysis layer (M1) is treated as already covered for skills — description linting and optimisation exist in the ecosystem already (SkillReducer, skill-creator tooling). So the skills adapter enters at the **runner**, not at the analyser. Nothing below re-does M1.
+
+### The unifying abstraction
+
+> Context that a model selects, at runtime, based on a short natural-language description.
+
+MCP tools, Agent Skills, and subagents are all instances. The selection mechanism is identical, therefore the measurement problem is identical.
+
+Skills work by **progressive disclosure**: the agent loads only each skill's name and description at startup and reads the full `SKILL.md` only once a task matches. The description carries the entire triggering burden — exactly as a tool's `description` field does in a manifest.
+
+### Why the problem is worth covering
+
+- Roughly **45% of installed skills in one production system had never been triggered** — pure context tax on every request.
+- Trigger rate from description matching alone measured at **under 30%**.
+- **SkillsBench** (Stanford/CMU/Berkeley/Oxford) analysed **47,150 public skills** and found an average quality score of **6.2 out of 12**; they used only top-quartile skills in testing. Curated skills lifted agent pass rates **16.2 points on average, 51.9 in healthcare**.
+- Surface area: **31,000+ skill definitions** in `.claude/skills/` on GitHub, plus 57,000+ AGENTS.md and 21,000+ CLAUDE.md files. Open standard at agentskills.io since December 2025, ~40 compatible products (Codex, Copilot, Cursor, Gemini CLI, VS Code).
+
+The 16.2-point curation swing is the skills-side equivalent of Neon's 60→100%. Same argument, larger corpus.
+
+### What transfers unchanged
+
+Almost everything, which is the point:
+
+| Component | Change needed |
+|---|---|
+| Scorer | None |
+| Mutator (§6) | None — every operator applies |
+| Pass-rate assertions (§4) | None |
+| Reporter | None |
+| Runner | Prompt assembly only |
+| Connector | New adapter |
+
+The restraint check from §4 maps directly onto skills, and it's officially blessed: the recommended methodology is **~20 eval queries, 8–10 that should trigger and 8–10 that shouldn't, with near-misses the most valuable negative cases.** That's a documented method with no tool shipping it — the same gap this project was founded on.
+
+### What's genuinely different
+
+1. **Two layers, not one.** A skill has a *routing description* (selection) and a *body* (execution). Only the description drives triggering. Score them separately — a skill can trigger perfectly and then perform badly, or never trigger despite an excellent body.
+2. **Hard 1024-character limit** on descriptions. A real constraint to lint against; MCP has no equivalent.
+3. **Prefix-cache cost.** Skills sit near the front of the context prefix, so editing one invalidates cache for the whole conversation behind it. Churn has a cost beyond tokens, and that's a metric worth reporting.
+4. **Directory, not protocol.** The adapter reads markdown frontmatter off disk. No JSON-RPC, no transports, no beta SDK.
+
+### Prior art to read before building
+
+**SkillReducer** — two-stage optimisation framework; analysed 55,315 public GitHub skills; stage one optimises routing descriptions and generates them from the body where missing or too short.
+
+Closer to this project than anything in the MCP space. Two distinctions to preserve: it **optimises**, this **measures**; and it's a paper, not a CLI. Both are defensible positions, but know the boundary before you start.
+
+### Revised adapter roadmap
+
+| | MCP adapter | Skills adapter |
+|---|---|---|
+| Difficulty | JSON-RPC, two transports, churning beta SDK | Read markdown frontmatter from a directory |
+| Spec risk | High through Q3 2026 | Low — stable open standard |
+| Corpus for a launch post | ~22,000 servers | ~1.9M indexed skills, 31k on GitHub |
+| Who pays | Companies shipping servers, CI budgets | Mostly individuals |
+
+**Momentum lives in skills, revenue lives in MCP.** Ship whichever gets you to a public artifact soonest; the adapter split means the other is a config change, not a fork.
+
+### New open questions
+
+7. **Does the mutation score mean the same thing across adapters?** Blanking a skill description and blanking a tool description are similar operations but the baselines differ. Probably needs per-adapter normalisation before the numbers are comparable.
+8. **Do you score skill bodies at all, or only routing?** Routing only is the disciplined answer and keeps scope tight. Body quality is a much larger, mushier problem.
+9. **Is "45% never trigger" reproducible on public corpora?** If yes, that's the launch post. Worth checking cheaply and early, since it needs no runner — just an analyser and a scenario set.

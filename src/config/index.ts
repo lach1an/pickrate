@@ -31,7 +31,7 @@ export async function loadConfig(path: string): Promise<EvalConfig> {
   return parseConfig(raw, path);
 }
 
-export function parseConfig(raw: unknown, path = 'mcpeval.yaml'): EvalConfig {
+export function parseConfig(raw: unknown, path = 'pickrate.yaml'): EvalConfig {
   const root = object(raw, 'config');
 
   return {

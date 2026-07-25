@@ -1,5 +1,6 @@
 import pc from 'picocolors';
 import { countBySeverity } from '../analyser/index.js';
+import { itemNoun } from '../surface.js';
 import type { Analysis, Finding, Severity } from '../types.js';
 
 const MARK: Record<Severity, string> = { error: '✗', warn: '!', info: '·' };
@@ -9,8 +10,8 @@ const PAINT: Record<Severity, (s: string) => string> = {
   info: pc.dim,
 };
 
-/** How many of the most expensive tools to itemise. */
-const TOP_TOOLS = 8;
+/** How many of the most expensive items to itemise. */
+const TOP_ITEMS = 8;
 
 /** Human-readable report. Diagnostics first, headline number second. */
 export function formatAnalysis(analysis: Analysis): string {
@@ -18,14 +19,14 @@ export function formatAnalysis(analysis: Analysis): string {
   const { source, tokens, findings } = analysis;
 
   out.push('');
-  out.push(`${pc.bold('mcpeval inspect')}  ${pc.dim(source.target)}`);
+  out.push(`${pc.bold('pickrate inspect')}  ${pc.dim(source.target)}`);
   if (source.serverInfo) {
     out.push(pc.dim(`  server    ${source.serverInfo.name} ${source.serverInfo.version}`));
   }
   if (source.protocolVersion) {
     out.push(pc.dim(`  protocol  ${source.protocolVersion}`));
   }
-  out.push(pc.dim(`  tools     ${analysis.toolCount}`));
+  out.push(pc.dim(`  ${noun(analysis, true).padEnd(8)}  ${analysis.itemCount}`));
   out.push(
     pc.dim(`  context   ~${tokens.total.toLocaleString()} tokens per session (${tokens.encoding}, approximate)`),
   );
@@ -42,7 +43,7 @@ export function formatAnalysis(analysis: Analysis): string {
 }
 
 function formatFindings(findings: Finding[]): string {
-  if (findings.length === 0) return pc.green('  No findings. Manifest looks clean.');
+  if (findings.length === 0) return pc.green('  No findings. Looks clean.');
 
   // Findings arrive sorted by severity, so a rule with both warnings and info
   // findings would otherwise get two headings. Group by rule, ordered by the
@@ -68,27 +69,32 @@ function formatFindings(findings: Finding[]): string {
 }
 
 function formatCostTable(analysis: Analysis): string {
-  const { perTool } = analysis.tokens;
-  if (perTool.length === 0) return pc.dim('  No tools exposed.');
+  const { perItem } = analysis.tokens;
+  if (perItem.length === 0) return pc.dim(`  No ${noun(analysis, true)} exposed.`);
 
-  const shown = perTool.slice(0, TOP_TOOLS);
-  const nameWidth = Math.max(...shown.map((t) => t.name.length), 4);
-  const lines = [pc.dim(`  ${'tool'.padEnd(nameWidth)}   tokens   share`)];
+  const shown = perItem.slice(0, TOP_ITEMS);
+  const nameWidth = Math.max(...shown.map((t) => t.name.length), 5);
+  const lines = [pc.dim(`  ${noun(analysis).padEnd(nameWidth)}   tokens   share`)];
 
-  for (const tool of shown) {
-    const share = `${(tool.share * 100).toFixed(1)}%`;
+  for (const item of shown) {
+    const share = `${(item.share * 100).toFixed(1)}%`;
     lines.push(
-      `  ${tool.name.padEnd(nameWidth)}  ${String(tool.tokens).padStart(6)}  ${share.padStart(6)}  ${bar(tool.share)}`,
+      `  ${item.name.padEnd(nameWidth)}  ${String(item.tokens).padStart(6)}  ${share.padStart(6)}  ${bar(item.share)}`,
     );
   }
 
-  const rest = perTool.length - shown.length;
+  const rest = perItem.length - shown.length;
   if (rest > 0) {
-    const restTokens = perTool.slice(TOP_TOOLS).reduce((sum, t) => sum + t.tokens, 0);
+    const restTokens = perItem.slice(TOP_ITEMS).reduce((sum, t) => sum + t.tokens, 0);
     lines.push(pc.dim(`  ${`+ ${rest} more`.padEnd(nameWidth)}  ${String(restTokens).padStart(6)}`));
   }
 
   return lines.join('\n');
+}
+
+/** "tool" or "skill", per the adapter that produced this analysis. */
+function noun(analysis: Analysis, plural = false): string {
+  return itemNoun({ kind: analysis.source.adapter }, plural);
 }
 
 function bar(share: number): string {

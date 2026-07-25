@@ -10,28 +10,61 @@
 /** A JSON Schema 2020-12 document, kept deliberately loose. */
 export type JsonSchema = Record<string, unknown>;
 
-/** One tool as advertised by `tools/list`, normalised. */
-export interface ToolDef {
+/** Which world a surface came from. */
+export type SurfaceKind = 'mcp' | 'skills';
+
+/**
+ * Anything a model selects at runtime from a short natural-language
+ * description. MCP tools and Agent Skills are two instances; the selection
+ * mechanism is the same, so the measurement problem is the same.
+ */
+interface Selectable {
+  /** Identifier the model emits when it picks this. */
   name: string;
-  /** Human-facing title, if the server supplies one. */
+  /** Human-facing title, if the source supplies one. */
   title?: string;
+  /** The routing description. It carries the entire triggering burden. */
   description?: string;
-  inputSchema: JsonSchema;
-  outputSchema?: JsonSchema;
-  /** Anything the server sent that we do not model explicitly. */
+  /** Anything the source sent that we do not model explicitly. */
   raw: Record<string, unknown>;
 }
 
-/** The full tool surface of a server, plus how we obtained it. */
-export interface Manifest {
-  tools: ToolDef[];
-  source: ManifestSource;
+/** One tool as advertised by `tools/list`, normalised. */
+export interface ToolDef extends Selectable {
+  kind: 'tool';
+  inputSchema: JsonSchema;
+  outputSchema?: JsonSchema;
 }
 
-export interface ManifestSource {
-  /** How the manifest was obtained. */
-  kind: 'stdio' | 'http' | 'file';
-  /** Command line, URL, or file path — for display in reports. */
+/** One skill, read from a `SKILL.md` on disk. */
+export interface SkillDef extends Selectable {
+  kind: 'skill';
+  /** Path to the `SKILL.md`, for anchoring findings. */
+  path: string;
+  /**
+   * Everything after the frontmatter. Never sent to the model during
+   * selection — progressive disclosure means only the description is resident
+   * — so it is costed separately and never summed into the routing total.
+   */
+  body: string;
+  frontmatter: Record<string, unknown>;
+}
+
+export type SurfaceItem = ToolDef | SkillDef;
+
+/** The full selectable surface of a target, plus how we obtained it. */
+export interface Surface {
+  kind: SurfaceKind;
+  items: SurfaceItem[];
+  source: SurfaceSource;
+}
+
+export interface SurfaceSource {
+  /** How the surface was obtained. */
+  kind: 'stdio' | 'http' | 'file' | 'dir';
+  /** Which adapter read it. */
+  adapter: SurfaceKind;
+  /** Command line, URL, or path — for display in reports. */
   target: string;
   /** Server-reported name/version, when the transport exposes it. */
   serverInfo?: { name: string; version: string };
@@ -46,13 +79,13 @@ export interface ManifestSource {
 
 export type Severity = 'error' | 'warn' | 'info';
 
-/** A single lint finding against the manifest. */
+/** A single lint finding against the surface. */
 export interface Finding {
   /** Stable rule id, e.g. `missing-tool-description`. */
   rule: string;
   severity: Severity;
-  /** Tool this finding is anchored to, if any. */
-  tool?: string;
+  /** Item this finding is anchored to, if any — a tool or a skill name. */
+  item?: string;
   /** Dot-path into the tool's input schema, if any. e.g. `properties.name`. */
   path?: string;
   message: string;
@@ -60,31 +93,33 @@ export interface Finding {
   detail?: Record<string, unknown>;
 }
 
-/** Token cost of the manifest, which is what M1 exists to make visible. */
+/** Token cost of the surface, which is what M1 exists to make visible. */
 export interface TokenReport {
-  /** Tokens for the whole serialised tool array. */
+  /** Tokens resident in every request. For skills, routing only — not bodies. */
   total: number;
-  /** Per-tool cost, descending. */
-  perTool: Array<{ name: string; tokens: number; share: number }>;
+  /** Per-item cost, descending. */
+  perItem: Array<{ name: string; tokens: number; share: number }>;
   /** Which tokeniser produced these numbers — always state it in the report. */
   encoding: string;
   approximate: true;
 }
 
 export interface Analysis {
-  source: ManifestSource;
-  toolCount: number;
+  source: SurfaceSource;
+  itemCount: number;
   tokens: TokenReport;
   findings: Finding[];
 }
 
-/** A static check over the manifest. Rules never make network or model calls. */
+/** A static check over the surface. Rules never make network or model calls. */
 export interface Rule {
   id: string;
-  /** One line, shown in `mcpeval inspect --explain`. */
+  /** One line, shown in `pickrate inspect --explain`. */
   description: string;
   defaultSeverity: Severity;
-  run(manifest: Manifest): Finding[];
+  /** Surfaces this rule can say anything useful about. */
+  appliesTo: SurfaceKind[];
+  run(surface: Surface): Finding[];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -197,12 +232,12 @@ export interface ScenarioScore {
 }
 
 export interface EvalReport {
-  source: ManifestSource;
+  source: SurfaceSource;
   model: string;
   trials: number;
   scenarios: ScenarioScore[];
-  /** Tools in the manifest no scenario ever selected. Context you pay for. */
-  orphanTools: string[];
+  /** Items in the surface no scenario ever selected. Context you pay for. */
+  orphans: string[];
   usage: TrialUsage;
   /** Estimated spend in USD, or undefined when the model has no price entry. */
   costUsd?: number;

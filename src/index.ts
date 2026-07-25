@@ -1,6 +1,17 @@
 /** Library entry point. The CLI in `cli.ts` is a thin wrapper over this. */
 export * from './types.js';
-export { analyse, countBySeverity, rules, rulesById, countManifestTokens, countToolTokens } from './analyser/index.js';
+export {
+  analyse,
+  countBySeverity,
+  rules,
+  rulesById,
+  countSurfaceTokens,
+  countItemTokens,
+  countToolTokens,
+  countSkillRoutingTokens,
+  countSkillBodyTokens,
+} from './analyser/index.js';
+export { isTool, isSkill, toolsOf, skillsOf, itemNoun } from './surface.js';
 export { loadManifest, loadManifestFromFile, parseTarget, type ConnectOptions, type Target } from './connector/index.js';
 export { loadConfig, parseConfig, ConfigError, DEFAULTS, trialsFor, thresholdFor } from './config/index.js';
 export {
@@ -17,7 +28,7 @@ export { ReplayProvider } from './provider/replay.js';
 export {
   scoreRun,
   scoreScenario,
-  findOrphanTools,
+  findOrphans,
   matchesSubset,
   totalUsage,
   defaultNormalise,

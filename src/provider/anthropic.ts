@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import pc from 'picocolors';
-import type { JsonSchema, Manifest, Scenario, ToolCall, TrialResult, TrialUsage } from '../types.js';
+import { toolsOf } from '../surface.js';
+import type { Scenario, Surface, ToolCall, ToolDef, TrialResult, TrialUsage } from '../types.js';
 import type { CostEstimate, Provider } from './index.js';
 import { CACHE_READ_MULTIPLIER, PRICES } from './pricing.js';
 
@@ -47,9 +48,9 @@ export class AnthropicProvider implements Provider {
     });
   }
 
-  async runTrial(manifest: Manifest, scenario: Scenario): Promise<TrialResult> {
+  async runTrial(surface: Surface, scenario: Scenario): Promise<TrialResult> {
     try {
-      const response = await this.client.messages.create(this.request(manifest, scenario.prompt));
+      const response = await this.client.messages.create(this.request(surface, scenario.prompt));
 
       // Check before reading content: a refused trial has no usable content,
       // and treating it as "called nothing" would score as passing restraint.
@@ -86,7 +87,7 @@ export class AnthropicProvider implements Provider {
 
   /** Free preflight, so nobody discovers the cost after paying it. */
   async estimate(
-    manifest: Manifest,
+    surface: Surface,
     scenarios: Scenario[],
     totalTrials: number,
   ): Promise<CostEstimate> {
@@ -95,7 +96,7 @@ export class AnthropicProvider implements Provider {
       scenarios[0]!,
     );
     const counted = await this.client.messages
-      .countTokens({ model: this.model, ...promptShape(manifest, longest.prompt) })
+      .countTokens({ model: this.model, ...promptShape(surface, longest.prompt) })
       .catch((error: unknown) => {
         throwIfCredentialProblem(error);
         throw error;
@@ -115,7 +116,7 @@ export class AnthropicProvider implements Provider {
    * The request shape is the measurement instrument — every choice here is
    * load-bearing, so they are all justified in place.
    */
-  private request(manifest: Manifest, prompt: string): Anthropic.MessageCreateParamsNonStreaming {
+  private request(surface: Surface, prompt: string): Anthropic.MessageCreateParamsNonStreaming {
     return {
       model: this.model,
       max_tokens: 1024,
@@ -128,7 +129,7 @@ export class AnthropicProvider implements Provider {
       // emitting a tool_use block — which this harness would silently score as
       // "selected nothing". That is a systematic error in the primary metric.
       output_config: { effort: 'low' },
-      ...promptShape(manifest, prompt),
+      ...promptShape(surface, prompt),
     };
   }
 }
@@ -140,7 +141,7 @@ export class AnthropicProvider implements Provider {
  * prices the request that actually runs, rather than an approximation of it.
  */
 function promptShape(
-  manifest: Manifest,
+  surface: Surface,
   prompt: string,
 ): {
   tools: Anthropic.Tool[];
@@ -148,7 +149,7 @@ function promptShape(
   messages: Anthropic.MessageParam[];
 } {
   return {
-    tools: manifest.tools.map(toAnthropicTool),
+    tools: toolsOf(surface).map(toAnthropicTool),
     // The breakpoint goes on system, which renders after tools, so it caches
     // the manifest and the system prompt together. Without it, a 34k-token
     // manifest is re-billed at full price on every single trial.
@@ -162,8 +163,8 @@ export class CredentialError extends Error {
   constructor(detail: string) {
     super(
       `${detail}\n` +
-        `  mcpeval run needs model access. Set ANTHROPIC_API_KEY, or run "ant auth login".\n` +
-        `  ${pc.dim('mcpeval inspect needs no credentials at all.')}`,
+        `  pickrate run needs model access. Set ANTHROPIC_API_KEY, or run "ant auth login".\n` +
+        `  ${pc.dim('pickrate inspect needs no credentials at all.')}`,
     );
     this.name = 'CredentialError';
   }
@@ -187,11 +188,7 @@ function throwIfCredentialProblem(error: unknown): void {
  * observe what the model does with the server's schema as written, not with a
  * version the API was willing to enforce.
  */
-function toAnthropicTool(tool: {
-  name: string;
-  description?: string;
-  inputSchema: JsonSchema;
-}): Anthropic.Tool {
+function toAnthropicTool(tool: ToolDef): Anthropic.Tool {
   return {
     name: tool.name,
     ...(tool.description !== undefined ? { description: tool.description } : {}),

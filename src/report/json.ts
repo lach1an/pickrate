@@ -4,10 +4,12 @@ import type { Analysis, EvalReport } from '../types.js';
 /**
  * Bump when a shape below changes incompatibly. CI consumers pin on this.
  *
- * Still 1 after adding `run`: an `inspect` consumer sees the same document it
- * always did, and a new command is an addition to the contract, not a break.
+ * 2 as of the adapter split: `toolCount` became `itemCount`, `orphanTools`
+ * became `orphans`, findings anchor to `item` rather than `tool`, and `source`
+ * gained `adapter`. All of that is a break, and breaking it before M4's
+ * GitHub Action exists is far cheaper than after.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** Machine-readable report. Stable shape — M4's CI integration reads this. */
 export function formatAnalysisJson(analysis: Analysis): string {
@@ -16,7 +18,7 @@ export function formatAnalysisJson(analysis: Analysis): string {
       schemaVersion: SCHEMA_VERSION,
       command: 'inspect',
       source: analysis.source,
-      toolCount: analysis.toolCount,
+      itemCount: analysis.itemCount,
       tokens: analysis.tokens,
       summary: countBySeverity(analysis.findings),
       findings: analysis.findings,
@@ -46,7 +48,7 @@ export function formatEvalReportJson(report: EvalReport): string {
         errored: report.scenarios.reduce((sum, s) => sum + s.errors, 0),
       },
       scenarios: report.scenarios,
-      orphanTools: report.orphanTools,
+      orphans: report.orphans,
       usage: report.usage,
       ...(report.costUsd !== undefined ? { costUsd: report.costUsd } : {}),
     },

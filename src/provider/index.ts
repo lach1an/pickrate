@@ -1,13 +1,13 @@
-import type { Manifest, Scenario, TrialResult } from '../types.js';
+import type { Scenario, Surface, TrialResult } from '../types.js';
 
 export { costOf, PRICES, EMPTY_USAGE, addUsage, sumUsage, formatUsd } from './pricing.js';
 export type { ModelPrice } from './pricing.js';
 
 export interface CostEstimate {
-  /** Input tokens for a single trial, including the whole manifest. */
+  /** Input tokens for a single trial, including the whole surface. */
   inputTokensPerTrial: number;
   totalTrials: number;
-  /** Assumes every trial after the first reads the manifest from cache. */
+  /** Assumes every trial after the first reads the surface from cache. */
   estimatedUsd?: number;
   model: string;
 }
@@ -29,10 +29,10 @@ export interface Provider {
    * what the model *selects*, and a `delete_branch` scenario must never delete
    * anything on the user's server.
    */
-  runTrial(manifest: Manifest, scenario: Scenario): Promise<TrialResult>;
+  runTrial(surface: Surface, scenario: Scenario): Promise<TrialResult>;
 
   /** Priced preflight, so nobody discovers the cost after paying it. */
-  estimate?(manifest: Manifest, scenarios: Scenario[], totalTrials: number): Promise<CostEstimate>;
+  estimate?(surface: Surface, scenarios: Scenario[], totalTrials: number): Promise<CostEstimate>;
 
   /** Release any underlying client. */
   close?(): Promise<void>;

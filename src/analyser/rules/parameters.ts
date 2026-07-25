@@ -1,3 +1,4 @@
+import { toolsOf } from '../../surface.js';
 import type { Finding, Rule } from '../../types.js';
 import { walkProperties } from '../schema.js';
 
@@ -15,16 +16,17 @@ export const missingParamDescription: Rule = {
   id: 'missing-param-description',
   description: 'Undocumented parameters are where the model invents formats.',
   defaultSeverity: 'warn',
-  run(manifest) {
+  appliesTo: ['mcp'],
+  run(surface) {
     const findings: Finding[] = [];
-    for (const tool of manifest.tools) {
+    for (const tool of toolsOf(surface)) {
       for (const prop of walkProperties(tool.inputSchema)) {
         const description = typeof prop.schema.description === 'string' ? prop.schema.description.trim() : '';
         if (description !== '') continue;
         findings.push({
           rule: 'missing-param-description',
           severity: prop.required ? 'warn' : 'info',
-          tool: tool.name,
+          item: tool.name,
           path: prop.path,
           message: `${tool.name}.${prop.path} has no description${prop.required ? ' and is required' : ''}.`,
           detail: { required: prop.required, type: prop.schema.type },
@@ -39,9 +41,10 @@ export const enumCandidate: Rule = {
   id: 'enum-candidate',
   description: 'Free-text params whose description lists the valid values should just be an enum.',
   defaultSeverity: 'info',
-  run(manifest) {
+  appliesTo: ['mcp'],
+  run(surface) {
     const findings: Finding[] = [];
-    for (const tool of manifest.tools) {
+    for (const tool of toolsOf(surface)) {
       for (const prop of walkProperties(tool.inputSchema)) {
         if (prop.schema.type !== 'string') continue;
         if (Array.isArray(prop.schema.enum) || typeof prop.schema.const === 'string') continue;
@@ -53,7 +56,7 @@ export const enumCandidate: Rule = {
         findings.push({
           rule: 'enum-candidate',
           severity: 'info',
-          tool: tool.name,
+          item: tool.name,
           path: prop.path,
           message: `${tool.name}.${prop.path} is a free-text string but its description enumerates values — make it an enum.`,
           detail: { description },
