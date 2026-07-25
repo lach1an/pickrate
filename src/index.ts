@@ -102,6 +102,12 @@ export { formatEvalReport } from './report/eval.js';
 export { formatMutationReport } from './report/mutation.js';
 export { formatGates } from './report/gates.js';
 export {
+  formatAnalysisMarkdown,
+  formatEvalMarkdown,
+  formatMutationMarkdown,
+  COMMENT_MARKER,
+} from './report/markdown.js';
+export {
   formatAnalysisJson,
   formatEvalReportJson,
   formatMutationReportJson,

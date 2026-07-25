@@ -33,6 +33,11 @@ import {
   formatMutationReportJson,
   type CiExtras,
 } from './report/json.js';
+import {
+  formatAnalysisMarkdown,
+  formatEvalMarkdown,
+  formatMutationMarkdown,
+} from './report/markdown.js';
 import { formatMutationReport } from './report/mutation.js';
 import { formatAnalysis } from './report/table.js';
 import { runEval, totalTrials } from './runner/index.js';
@@ -221,6 +226,7 @@ async function inspect(
   await emit(format, values, {
     table: () => formatAnalysis(analysis),
     json: () => formatAnalysisJson(analysis, { gates }),
+    markdown: () => formatAnalysisMarkdown(analysis, gates),
     gates,
   });
 
@@ -272,6 +278,7 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
   await emit(format, values, {
     table: () => formatEvalReport(report),
     json: () => formatEvalReportJson(report, { gates }),
+    markdown: () => formatEvalMarkdown(report, gates),
     gates,
   });
 
@@ -354,6 +361,7 @@ async function mutate(
   await emit(format, values, {
     table: () => formatMutationReport(report),
     json: () => formatMutationReportJson(report, { gates }),
+    markdown: () => formatMutationMarkdown(report, gates),
     gates,
   });
 
@@ -363,6 +371,7 @@ async function mutate(
 interface Rendered {
   table: () => string;
   json: () => string;
+  markdown: () => string;
   gates: GateResult[];
 }
 
@@ -378,6 +387,9 @@ async function emit(format: Format, values: Values, rendered: Rendered): Promise
 
   if (format === 'json') {
     process.stdout.write(`${rendered.json()}\n`);
+  } else if (format === 'markdown') {
+    // Gates are already inside the markdown — a step summary is one document.
+    process.stdout.write(`${rendered.markdown()}\n`);
   } else {
     const gates = formatGates(rendered.gates);
     process.stdout.write(gates === undefined ? `${rendered.table()}\n` : `${rendered.table()}\n${gates}\n\n`);
