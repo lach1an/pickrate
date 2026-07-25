@@ -170,6 +170,12 @@ export interface EvalDefaults {
   threshold: number;
   model: string;
   concurrency: number;
+  /**
+   * Adapter-specific presentation mode — skills' `skill-tool` (default) or
+   * `pseudo-tool`. Left unset means "whatever the adapter does by default";
+   * the adapter validates the value, since only it knows its modes.
+   */
+  presentation?: string;
 }
 
 export interface EvalConfig {
@@ -251,6 +257,13 @@ export interface ScenarioScore {
 export interface EvalReport {
   source: SurfaceSource;
   model: string;
+  /**
+   * How the surface was put to the model, when the adapter offers a choice.
+   *
+   * Part of the result, not a setting: the same skills scored under
+   * `skill-tool` and `pseudo-tool` are two different measurements.
+   */
+  presentation?: string;
   trials: number;
   scenarios: ScenarioScore[];
   /** Items in the surface no scenario ever selected. Context you pay for. */

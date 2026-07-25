@@ -36,6 +36,14 @@ export interface ToolDeclaration {
 export interface Presentation {
   tools: ToolDeclaration[];
   /**
+   * The adapter's name for how this was rendered, e.g. `skill-tool`.
+   *
+   * Reported alongside the score, because it changes what the score means: the
+   * same skill set measured two ways gives two different, individually valid
+   * numbers. A report that omits it invites comparing them.
+   */
+  mode?: string;
+  /**
    * Appended to the base system prompt.
    *
    * Must be byte-stable across every trial in a run — it sits inside the

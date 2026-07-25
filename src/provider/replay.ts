@@ -19,8 +19,12 @@ export class ReplayProvider implements Provider {
   private readonly byScenario = new Map<string, TrialResult[]>();
   private readonly cursor = new Map<string, number>();
 
-  constructor(trials: TrialResult[], model = 'replay') {
+  /** The presentation these trials were recorded under, when the file says. */
+  private readonly recordedMode: string | undefined;
+
+  constructor(trials: TrialResult[], model = 'replay', recordedMode?: string) {
     this.model = model;
+    this.recordedMode = recordedMode;
     for (const trial of trials) {
       const existing = this.byScenario.get(trial.scenarioId);
       if (existing) existing.push(trial);
@@ -34,14 +38,31 @@ export class ReplayProvider implements Provider {
     if (!Array.isArray(trials)) {
       throw new Error(`${path}: expected an array of trials, or an object with a "trials" key.`);
     }
-    const record = Array.isArray(parsed) ? undefined : (parsed as { model?: unknown }).model;
+    const record = Array.isArray(parsed) ? undefined : (parsed as Record<string, unknown>);
+    const recordedModel = record?.model;
+    const recordedMode = record?.presentation;
     return new ReplayProvider(
       trials as TrialResult[],
-      model ?? (typeof record === 'string' ? record : undefined),
+      model ?? (typeof recordedModel === 'string' ? recordedModel : undefined),
+      typeof recordedMode === 'string' ? recordedMode : undefined,
     );
   }
 
-  async runTrial(_presentation: Presentation, scenario: Scenario): Promise<TrialResult> {
+  async runTrial(presentation: Presentation, scenario: Scenario): Promise<TrialResult> {
+    // Recorded calls only mean what they meant under the presentation that
+    // produced them: skill-tool trials replayed as pseudo-tool project through
+    // the identity and score a flat zero, which reads like a finding rather
+    // than a mistake.
+    if (
+      this.recordedMode !== undefined &&
+      presentation.mode !== undefined &&
+      presentation.mode !== this.recordedMode
+    ) {
+      throw new Error(
+        `These trials were recorded under "${this.recordedMode}" and are being replayed as "${presentation.mode}". Re-record, or drop the --presentation override.`,
+      );
+    }
+
     const recorded = this.byScenario.get(scenario.id);
     if (!recorded || recorded.length === 0) {
       throw new Error(`No recorded trials for scenario "${scenario.id}".`);

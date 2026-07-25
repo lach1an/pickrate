@@ -6,9 +6,9 @@ A tool manifest is a prompt. Names, descriptions and schemas are the entire inte
 
 `pickrate` measures that.
 
-The same question applies to Agent Skills, for the same reason: a skill is selected from a one-line description too. `inspect` covers both surfaces today; `run` is MCP-only until the skills presenter lands.
+The same question applies to Agent Skills, for the same reason: a skill is selected from a one-line description too. Both surfaces go through the same measurement.
 
-> Status: **M2 complete**, adapter split 4 of 6 steps in. `inspect` (static analysis) works on MCP servers and skills directories; `run` (selection eval) works on MCP servers. The mutator is not built yet — see [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md) and [`plans/skills-adapter-plan.md`](plans/skills-adapter-plan.md).
+> Status: **M2 complete**, adapter split 5 of 6 steps in. `inspect` (static analysis) and `run` (selection eval) both work, on MCP servers and on skills directories. The mutator is not built yet — see [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md) and [`plans/skills-adapter-plan.md`](plans/skills-adapter-plan.md).
 
 ## Quick start
 
@@ -105,13 +105,25 @@ pickrate run  npx -y @modelcontextprotocol/server-filesystem /tmp
 --model <id>            override defaults.model
 --trials <n>            override defaults.trials
 --replay <file>         replay recorded trials instead of calling a model
+--presentation <mode>   skills only: skill-tool (default) or pseudo-tool
 ```
+
+### Presenting skills
+
+How a skill surface reaches the model decides what the score means, so `run` prints the mode it used and the JSON report carries it.
+
+| Mode | Surface | Use |
+|---|---|---|
+| `skill-tool` | one `Skill` dispatch tool, plus a routing listing in the system prompt | the default — this is the mechanism an agent actually uses |
+| `pseudo-tool` | one synthetic tool per skill, each with its own description slot | a control: a *more* favourable surface than reality |
+
+Run a skill set both ways and the difference tells you how much of your trigger rate is the dispatch mechanism versus the descriptions themselves. The two numbers are not comparable as scores — only the gap between them is meaningful — which is why the mode is reported next to them and why replaying trials under a mode they weren't recorded under is an error rather than a zero.
 
 ### Scenario file
 
 ```yaml
-server:
-  transport: stdio                  # or: http + url, or: file + manifest
+target:
+  type: stdio                       # or: http + url, file + manifest, skills + path
   command: node ./build/index.js
 
 defaults:
@@ -129,15 +141,30 @@ scenarios:
 
   - id: no-tool-needed
     prompt: "what's the capital of France?"
-    expect: { tool: null }            # restraint check
+    expect: { select: null }          # restraint check
 
   - id: ambiguous-delete
     prompt: "get rid of the staging branch"
-    expect: { tool: delete_branch }
+    expect: { select: delete_branch }
     threshold: 0.99                   # destructive — demand near-certainty
 ```
 
+`expect.select` and `expect.tool` are the same field — `select` reads better once a skill can be the thing selected, and `tool` stays accepted. `null` under either is the restraint check.
+
 Per-scenario `threshold` matters: a higher bar for destructive operations than for convenience ones is a judgement call you should own.
+
+A skills config differs only in its target and, if you want the control arm, its presentation:
+
+```yaml
+target:
+  type: skills
+  path: ./.claude/skills
+
+defaults:
+  presentation: skill-tool
+```
+
+Scenario semantics are otherwise identical — around 20 prompts, half that should trigger something and half that shouldn't, with the near-misses being the ones worth writing.
 
 ### What `run` does and doesn't do
 
@@ -179,6 +206,9 @@ npm run build
 # The whole eval pipeline, offline: no server, no API key, no spend.
 npm run dev -- run test/fixtures/pickrate.yaml \
   --replay test/fixtures/trials/git-server.json
+
+npm run dev -- run test/fixtures/skills-eval.yaml \
+  --replay test/fixtures/trials/skills.json
 ```
 
 Fixtures in `test/fixtures/` let every component be developed with no server running and no API spend — captured `tools/list` responses and `SKILL.md` trees for the analyser, recorded trials for the scorer. Each surface has a clean fixture (a test asserts it produces zero findings) and a messy one that trips every rule. They're also the seed corpus for the M3 mutator.

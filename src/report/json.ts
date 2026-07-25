@@ -38,6 +38,7 @@ export function formatEvalReportJson(report: EvalReport): string {
       command: 'run',
       source: report.source,
       model: report.model,
+      ...(report.presentation !== undefined ? { presentation: report.presentation } : {}),
       trials: report.trials,
       startedAt: report.startedAt,
       durationMs: report.durationMs,

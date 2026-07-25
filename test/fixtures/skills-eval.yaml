@@ -1,0 +1,37 @@
+# The skills counterpart to pickrate.yaml. Pairs with trials/skills.json, so
+# the whole pipeline runs offline: no directory scan surprises, no API key,
+# no spend.
+target:
+  type: skills
+  path: ./skills/clean
+
+defaults:
+  trials: 5
+  threshold: 0.95
+  model: claude-haiku-4-5
+  concurrency: 4
+  presentation: skill-tool
+
+scenarios:
+  - id: review
+    prompt: "can you look over the changes on this branch and tell me what's wrong?"
+    expect:
+      select: git-review
+
+  - id: release-notes
+    prompt: "write up what's changed since v1.2 for the release announcement"
+    expect:
+      select: changelog
+
+  # The near-miss: phrased like a review request, but it is asking for prose
+  # about history. These are the most valuable scenarios in a skills eval.
+  - id: review-near-miss
+    prompt: "summarise the work that went into this release"
+    expect:
+      select: changelog
+    threshold: 0.8
+
+  - id: no-skill-needed
+    prompt: "what's the capital of France?"
+    expect:
+      select: null

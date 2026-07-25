@@ -26,6 +26,41 @@ describe('config', () => {
     assert.equal(parseConfig(minimal).target, 'node ./build/index.js');
   });
 
+  it('accepts target: as the general spelling, and server: as it always was', () => {
+    // A skills directory is not a server. Renaming without a break costs one
+    // line, and every config written against M2 keeps working.
+    const viaTarget = parseConfig({
+      target: { type: 'stdio', command: 'node ./build/index.js' },
+      scenarios: minimal.scenarios,
+    });
+    assert.equal(viaTarget.target, parseConfig(minimal).target);
+  });
+
+  it('resolves a skills path relative to the config', async () => {
+    const config = await loadConfig(fixture('skills-eval.yaml'));
+    assert.ok(config.target.endsWith('/test/fixtures/skills/clean'), config.target);
+    assert.equal(config.defaults.presentation, 'skill-tool');
+  });
+
+  it('accepts expect.select as an alias for expect.tool', () => {
+    const config = parseConfig({
+      ...minimal,
+      scenarios: [{ id: 'a', prompt: 'x', expect: { select: 'some-skill' } }],
+    });
+    assert.equal(config.scenarios[0]!.expect.tool, 'some-skill');
+  });
+
+  it('refuses both spellings at once rather than picking one', () => {
+    assert.throws(
+      () =>
+        parseConfig({
+          ...minimal,
+          scenarios: [{ id: 'a', prompt: 'x', expect: { select: 'a', tool: 'b' } }],
+        }),
+      /same field/,
+    );
+  });
+
   it('applies defaults when the block is absent', () => {
     assert.deepEqual(parseConfig(minimal).defaults, DEFAULTS);
   });
@@ -39,7 +74,9 @@ describe('config', () => {
 
     assert.throws(
       () => parseConfig({ ...minimal, scenarios: [{ id: 'r', prompt: 'hi', expect: {} }] }),
-      (error: unknown) => error instanceof ConfigError && error.path === 'scenarios[0].expect.tool',
+      // Reported under the canonical spelling, `select`, even though `tool`
+      // is still accepted — the error should teach the current name.
+      (error: unknown) => error instanceof ConfigError && error.path === 'scenarios[0].expect.select',
     );
   });
 

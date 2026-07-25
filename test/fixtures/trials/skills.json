@@ -1,0 +1,134 @@
+{
+  "model": "claude-haiku-4-5",
+  "presentation": "skill-tool",
+  "_comment": "Recorded skill-tool trials. Calls are raw transcripts: the model names the dispatch tool and puts the skill in args, exactly as it comes back over the wire. Projection to a selection happens at score time, so this stays replayable if the presenter changes.",
+  "trials": [
+    {
+      "scenarioId": "review",
+      "calls": [{ "name": "Skill", "args": { "skill": "git-review" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 412, "outputTokens": 26, "cacheCreationInputTokens": 380, "cacheReadInputTokens": 0 }
+    },
+    {
+      "scenarioId": "review",
+      "calls": [{ "name": "Skill", "args": { "skill": "git-review" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 32, "outputTokens": 26, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+    {
+      "scenarioId": "review",
+      "calls": [{ "name": "Skill", "args": { "skill": "git-review" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 32, "outputTokens": 26, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+    {
+      "scenarioId": "review",
+      "calls": [{ "name": "Skill", "args": { "skill": "git-review" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 32, "outputTokens": 26, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+    {
+      "scenarioId": "review",
+      "calls": [{ "name": "Skill", "args": { "skill": "git-review" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 32, "outputTokens": 26, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+
+    {
+      "scenarioId": "release-notes",
+      "calls": [{ "name": "Skill", "args": { "skill": "changelog" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 34, "outputTokens": 25, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+    {
+      "scenarioId": "release-notes",
+      "calls": [{ "name": "Skill", "args": { "skill": "changelog" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 34, "outputTokens": 25, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+    {
+      "scenarioId": "release-notes",
+      "calls": [{ "name": "Skill", "args": { "skill": "changelog" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 34, "outputTokens": 25, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+    {
+      "scenarioId": "release-notes",
+      "calls": [],
+      "stopReason": null,
+      "usage": { "inputTokens": 0, "outputTokens": 0, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 0 },
+      "error": "Connection error."
+    },
+    {
+      "scenarioId": "release-notes",
+      "calls": [
+        { "name": "Skill", "args": { "skill": "changelog" } },
+        { "name": "Skill", "args": { "skill": "git-review" } }
+      ],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 34, "outputTokens": 48, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+
+    {
+      "scenarioId": "review-near-miss",
+      "calls": [{ "name": "Skill", "args": { "skill": "changelog" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 30, "outputTokens": 25, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+    {
+      "scenarioId": "review-near-miss",
+      "calls": [{ "name": "Skill", "args": { "skill": "changelog" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 30, "outputTokens": 25, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+    {
+      "scenarioId": "review-near-miss",
+      "calls": [{ "name": "Skill", "args": { "skill": "changelog" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 30, "outputTokens": 25, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+    {
+      "scenarioId": "review-near-miss",
+      "calls": [{ "name": "Skill", "args": { "skill": "git-review" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 30, "outputTokens": 26, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+    {
+      "scenarioId": "review-near-miss",
+      "calls": [{ "name": "Skill", "args": { "skill": "git-review" } }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 30, "outputTokens": 26, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+
+    {
+      "scenarioId": "no-skill-needed",
+      "calls": [],
+      "stopReason": "end_turn",
+      "usage": { "inputTokens": 24, "outputTokens": 12, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+    {
+      "scenarioId": "no-skill-needed",
+      "calls": [],
+      "stopReason": "end_turn",
+      "usage": { "inputTokens": 24, "outputTokens": 12, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+    {
+      "scenarioId": "no-skill-needed",
+      "calls": [],
+      "stopReason": "end_turn",
+      "usage": { "inputTokens": 24, "outputTokens": 12, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+    {
+      "scenarioId": "no-skill-needed",
+      "calls": [],
+      "stopReason": "end_turn",
+      "usage": { "inputTokens": 24, "outputTokens": 12, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    },
+    {
+      "scenarioId": "no-skill-needed",
+      "calls": [{ "name": "Skill", "args": {} }],
+      "stopReason": "tool_use",
+      "usage": { "inputTokens": 24, "outputTokens": 18, "cacheCreationInputTokens": 0, "cacheReadInputTokens": 380 }
+    }
+  ]
+}

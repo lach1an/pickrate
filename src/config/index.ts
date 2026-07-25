@@ -34,8 +34,14 @@ export async function loadConfig(path: string): Promise<EvalConfig> {
 export function parseConfig(raw: unknown, path = 'pickrate.yaml'): EvalConfig {
   const root = object(raw, 'config');
 
+  // `target:` is the spelling that survives the MCP/skills split — a skills
+  // directory is not a server. `server:` stays accepted, unannounced: every
+  // config written against M2 uses it, and a rename is not worth a break.
+  const block = root.target ?? root.server;
+  const key = root.target !== undefined ? 'target' : 'server';
+
   return {
-    target: parseServer(root.server, path),
+    target: parseTargetBlock(block, key, path),
     defaults: parseDefaults(root.defaults),
     scenarios: parseScenarios(root.scenarios),
     path,
@@ -43,35 +49,42 @@ export function parseConfig(raw: unknown, path = 'pickrate.yaml'): EvalConfig {
 }
 
 /**
- * Collapse the `server` block into the single target string the connector
- * already understands, so `run` and `inspect` reach a server the same way.
+ * Collapse the target block into the single target string the adapters already
+ * understand, so `run` and `inspect` reach a surface the same way.
  */
-function parseServer(raw: unknown, configPath: string): string {
-  const server = object(raw, 'server');
-  const transport = server.transport;
+function parseTargetBlock(raw: unknown, key: string, configPath: string): string {
+  const server = object(raw, key);
+  // `type` is the general word now that a target can be a directory of skills.
+  const transport = server.type ?? server.transport;
 
+  if (transport === 'skills') {
+    // Relative to the config file, like `file`: a checked-in fixture has to
+    // work from any working directory.
+    return resolve(dirname(configPath), required(server.path, `${key}.path`, 'a directory path'));
+  }
   if (transport === 'stdio') {
-    return required(server.command, 'server.command', 'a command string');
+    return required(server.command, `${key}.command`, 'a command string');
   }
   if (transport === 'http') {
-    return required(server.url, 'server.url', 'a URL');
+    return required(server.url, `${key}.url`, 'a URL');
   }
   if (transport === 'file') {
     // A captured tools/list response. Resolved relative to the config file so
     // a checked-in fixture works from any working directory — this is what
     // lets a whole eval run offline, and what M3's mutation runs will target.
-    return resolve(dirname(configPath), required(server.manifest, 'server.manifest', 'a file path'));
+    return resolve(dirname(configPath), required(server.manifest, `${key}.manifest`, 'a file path'));
   }
   if (transport === undefined) {
-    // Tolerate the shorthand: whichever key is present implies the transport.
+    // Tolerate the shorthand: whichever key is present implies the type.
     if (typeof server.url === 'string') return server.url;
     if (typeof server.manifest === 'string') return resolve(dirname(configPath), server.manifest);
+    if (typeof server.path === 'string') return resolve(dirname(configPath), server.path);
     if (typeof server.command === 'string') return server.command;
-    throw new ConfigError('server.transport', 'expected "stdio", "http" or "file"');
+    throw new ConfigError(`${key}.type`, 'expected "stdio", "http", "file" or "skills"');
   }
   throw new ConfigError(
-    'server.transport',
-    `expected "stdio", "http" or "file", got ${json(transport)}`,
+    `${key}.type`,
+    `expected "stdio", "http", "file" or "skills", got ${json(transport)}`,
   );
 }
 
@@ -84,6 +97,11 @@ function parseDefaults(raw: unknown): EvalDefaults {
     threshold: threshold(defaults.threshold, 'defaults.threshold') ?? DEFAULTS.threshold,
     model: string(defaults.model, 'defaults.model') ?? DEFAULTS.model,
     concurrency: positiveInt(defaults.concurrency, 'defaults.concurrency') ?? DEFAULTS.concurrency,
+    // Not validated here: the set of modes belongs to the adapter, and this
+    // module must not learn the names of things only adapters know.
+    ...(defaults.presentation !== undefined
+      ? { presentation: required(defaults.presentation, 'defaults.presentation', 'a mode name') }
+      : {}),
   };
 }
 
@@ -120,19 +138,29 @@ function parseScenarios(raw: unknown): Scenario[] {
 function parseExpectation(raw: unknown, path: string): Expectation {
   const expect = object(raw, path);
 
-  // `tool: null` is meaningful — it is the restraint check — so an absent key
-  // and an explicit null must not be conflated.
-  if (!('tool' in expect)) {
-    throw new ConfigError(`${path}.tool`, 'expected a tool name, or null for a restraint check');
+  // `select:` is the general spelling — a skill is not a tool — with `tool:`
+  // kept as an alias so existing configs are untouched. Both mean the same
+  // field, and `null` means restraint under either.
+  const key = 'select' in expect ? 'select' : 'tool';
+
+  if (!('select' in expect) && !('tool' in expect)) {
+    throw new ConfigError(
+      `${path}.select`,
+      'expected the name of a tool or skill, or null for a restraint check',
+    );
   }
-  const tool = expect.tool;
+  if ('select' in expect && 'tool' in expect) {
+    throw new ConfigError(`${path}.select`, 'set either select or tool, not both — they are the same field');
+  }
+
+  const tool = expect[key];
   if (tool !== null && typeof tool !== 'string') {
-    throw new ConfigError(`${path}.tool`, `expected a string or null, got ${json(tool)}`);
+    throw new ConfigError(`${path}.${key}`, `expected a string or null, got ${json(tool)}`);
   }
 
   if (expect.args === undefined) return { tool };
   if (tool === null) {
-    throw new ConfigError(`${path}.args`, 'a restraint check (tool: null) cannot assert arguments');
+    throw new ConfigError(`${path}.args`, `a restraint check (${key}: null) cannot assert arguments`);
   }
   return { tool, args: object(expect.args, `${path}.args`) };
 }

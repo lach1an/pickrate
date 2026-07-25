@@ -114,6 +114,7 @@ export async function runEval(
   return {
     source: surface.source,
     model: provider.model,
+    ...(presentation.mode !== undefined ? { presentation: presentation.mode } : {}),
     trials: config.defaults.trials,
     scenarios,
     orphans,

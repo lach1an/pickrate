@@ -21,6 +21,11 @@ export function formatEvalReport(report: EvalReport): string {
   if (report.source.serverInfo) {
     out.push(pc.dim(`  server    ${report.source.serverInfo.name} ${report.source.serverInfo.version}`));
   }
+  if (report.presentation !== undefined) {
+    // Above the numbers, because it qualifies them: the same skills under a
+    // different presentation are a different measurement, not a better one.
+    out.push(pc.dim(`  surfaced  ${report.presentation}`));
+  }
   out.push(
     pc.dim(
       `  trials    ${report.trials} × ${report.scenarios.length} scenario${report.scenarios.length === 1 ? '' : 's'}` +

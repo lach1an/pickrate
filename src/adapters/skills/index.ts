@@ -2,8 +2,16 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { SkillDef, Surface, SurfaceSource } from '../../types.js';
-import type { Adapter, LoadOptions, Presentation } from '../contract.js';
+import type { Adapter, LoadOptions } from '../contract.js';
 import { parseTarget, type Target } from '../target.js';
+import { presentSkills } from './present.js';
+
+export {
+  presentSkills,
+  DEFAULT_SKILLS_MODE,
+  SKILL_TOOL,
+  type SkillsMode,
+} from './present.js';
 
 /**
  * Agent Skills: the adapter where selecting and calling come apart.
@@ -19,11 +27,7 @@ import { parseTarget, type Target } from '../target.js';
 export const skillsAdapter: Adapter = {
   id: 'skills',
   load: (target, options) => loadSkills(target, options),
-  present: (): Presentation => {
-    throw new Error(
-      'Skills cannot be run yet — the presenter lands in the next step. `pickrate inspect` works today.',
-    );
-  },
+  present: (surface, options) => presentSkills(surface, options),
 };
 
 /**

@@ -69,8 +69,8 @@ describe('skills loader', () => {
     assert.equal(surface.items.length, 2);
   });
 
-  it('says plainly that running skills is not wired up yet', () => {
-    assert.throws(() => skillsAdapter.present(clean), /presenter lands in the next step/);
+  it('presents through the adapter, not just the bare function', () => {
+    assert.equal(skillsAdapter.present(clean).mode, 'skill-tool');
   });
 });
 

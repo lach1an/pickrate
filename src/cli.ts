@@ -43,6 +43,7 @@ ${pc.bold('run options')}
   --model <id>            override defaults.model
   --trials <n>            override defaults.trials
   --replay <file>         replay recorded trials instead of calling a model
+  --presentation <mode>   skills only: skill-tool (default) or pseudo-tool
 
 ${pc.bold('shared options')}
   --adapter <id>          force mcp or skills, skipping target detection
@@ -70,6 +71,7 @@ async function main(argv: string[]): Promise<number> {
       model: { type: 'string' },
       trials: { type: 'string' },
       replay: { type: 'string' },
+      presentation: { type: 'string' },
       adapter: { type: 'string' },
       header: { type: 'string', multiple: true },
       env: { type: 'string', multiple: true },
@@ -151,7 +153,8 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
 
   // The same presentation the runner will use, so the estimate prices the
   // request that actually runs rather than an approximation of it.
-  const presentation = adapterFor(surface.kind).present(surface);
+  const mode = (values.presentation as string | undefined) ?? config.defaults.presentation;
+  const presentation = adapterFor(surface.kind).present(surface, mode !== undefined ? { mode } : {});
 
   const trials = totalTrials(config);
   const estimate = await preflight(provider, config, presentation, trials, json);
