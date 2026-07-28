@@ -11,7 +11,7 @@
 
 **Not started, and why:**
 
-- **Step 0b — the number is still unmeasured.** `scripts/calibrate-tokens.ts` is written and runs up to the credential boundary, but it has never been executed, so `inspect`'s tokeniser error remains unquantified and its copy is unchanged. It also still assumes the counting endpoint is unmetered; verify that first.
+- **Step 0b — the number is still unmeasured, and the blocker is credentials, not budget.** `scripts/calibrate-tokens.ts` runs up to the credential boundary and stops there; no key is configured on the dev machine (no `ANTHROPIC_API_KEY`, no `ant` profile). Its copy is unchanged. The metering question is now settled — the endpoint is **free** and separately rate-limited — so the only thing between this step and an answer is a key: `npx tsx scripts/calibrate-tokens.ts`.
 - **Steps 3 and 4** are gated on decisions A and B, which cost one calibration run to settle and were deliberately not guessed. Nothing in the landed work presumes an answer: `providerFor()` does not exist, and `src/cli.ts` still constructs `AnthropicProvider` directly at both call sites.
 - **Step 6** needs 1–4. Note that 6a (namespace linting) is listed as independent, but a namespace is not a concept the `Surface` model has yet — inventing one before `--tool-search` exists would be guessing at the shape the regime will actually take.
 
@@ -92,9 +92,15 @@ The live false pass. `src/provider/anthropic.ts:59` handles `refusal` and nothin
 
 `inspect`'s headline number is `gpt-tokenizer` output, offline, and the counting endpoint's own documentation names tool schemas as the thing local tokenisers get wrong. The error is probably a consistent under-count and is currently unquantified.
 
+**Verified, 28 July 2026 — the endpoint is free, not "cents".** The counting endpoint's docs say so in as many words: *"Token counting is free to use but subject to requests per minute rate limits"* (2,000 RPM on Start), and *"Token counting and message creation have separate and independent rate limits."* So this step costs nothing and cannot eat into a run's budget. The assumption in §4 is discharged.
+
+**Also verified, and it changes what the script has to measure: there are two tokenisers.** Claude 4.7 introduced a new one producing ~30% more tokens for the same text, and everything since is on it — while `DEFAULT_MODEL` (`claude-haiku-4-5`) is not. `inspect` never makes a model call and never sees `--model`, so a single offline number cannot be right for both generations. The script now sweeps one model from each (`PICKRATE_MODELS` overrides) rather than measuring `DEFAULT_MODEL` alone, which would have written down a figure wrong by about a third for half the line-up.
+
+**The direction is already documented.** The counting endpoint's guidance is explicit that OpenAI tokenisers are wrong for Claude — an under-count of roughly 15–20% on ordinary text and materially worse on code, which is the class tool schemas fall into. That is the direction and rough size; what the run buys is the *actual* figure for these fixtures and whether it is stable enough to correct for.
+
 **Changes**
-- `scripts/calibrate-tokens.ts` — not a test. Loads each surface fixture, presents it, sends the same payload to each provider's counting endpoint, and prints local vs authoritative with the delta as a percentage. Needs a key; never runs in `npm test`.
-- Depending on the result, one of: leave `TokenReport.approximate: true` and add the measured error to the copy; or carry a per-adapter correction factor (only if the error is consistent — a factor over a variable error is worse than the raw number).
+- `scripts/calibrate-tokens.ts` — not a test. Loads each surface fixture, presents it, sends the same payload to each provider's counting endpoint, and prints local vs authoritative with the delta as a percentage, per tokeniser generation. Needs a key; never runs in `npm test`.
+- Depending on the result, one of: leave `TokenReport.approximate: true` and add the measured error to the copy; or carry a per-adapter correction factor (only if the error is consistent *across both generations* — a factor over a variable error is worse than the raw number, and a factor that is right for one tokeniser and wrong for the other is worse still).
 
 **Done when** the number is written down in this file and `inspect`'s copy either states the error or explains why it does not need to.
 
@@ -211,7 +217,7 @@ The gating constraint on the whole thing remains the design document's §0: **th
 
 | Step | What | Rough shape |
 |---|---|---|
-| 0b | Counting endpoint, once per fixture | Cents. Verify the endpoint is unmetered first — it is assumed, not confirmed. |
+| 0b | Counting endpoint, twice per fixture (one model per tokeniser generation) | **Free — confirmed 28 July 2026**, and rate-limited separately from message creation, so it cannot eat a run's budget. Eight requests against a 2,000 RPM floor. |
 | A/B | One scenario × 20 trials × 2 candidate tiers | The number that decides the default model. Do not skip to save it. |
 | 3 | One full fixture run to record the OpenAI trials | One-off; everything downstream replays it offline. |
 | 6b | Both regimes, both providers | The expensive one. `both` doubles a run before `mutate` multiplies it. |

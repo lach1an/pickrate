@@ -42,12 +42,29 @@ const TARGETS = [
 ];
 
 const client = new Anthropic();
-const model = process.env.PICKRATE_MODEL ?? DEFAULT_MODEL;
+
+/**
+ * Two models, because there are two tokenisers.
+ *
+ * Claude 4.7 introduced a new tokeniser that produces roughly 30% more tokens
+ * for the same text, and every model since is on it — while this harness's
+ * default (`claude-haiku-4-5`) is not. So `inspect`'s single offline number
+ * cannot be equally right for both, and measuring one generation would write
+ * down a figure that is wrong by about a third for the other.
+ *
+ * `inspect` never makes a model call and never sees `--model`, so it cannot
+ * pick a side at runtime. What the delta between these two rows decides is
+ * whether the copy needs to name a tokeniser generation at all.
+ */
+const MODELS = process.env.PICKRATE_MODELS?.split(',') ?? [DEFAULT_MODEL, 'claude-opus-5'];
 
 /** One prompt, held constant, so it cancels out of the difference. */
 const PROMPT = 'hello';
 
-async function count(presentation: Pick<Presentation, 'tools' | 'systemSuffix'>): Promise<number> {
+async function count(
+  model: string,
+  presentation: Pick<Presentation, 'tools' | 'systemSuffix'>,
+): Promise<number> {
   const counted = await client.messages.countTokens({
     model,
     tools: presentation.tools.map((tool) => ({
@@ -61,31 +78,41 @@ async function count(presentation: Pick<Presentation, 'tools' | 'systemSuffix'>)
   return counted.input_tokens;
 }
 
-console.log(`model: ${model}\n`);
-console.log('target'.padEnd(28), 'local'.padStart(8), 'actual'.padStart(8), 'delta'.padStart(9));
+// Free, per the counting endpoint's own docs — it bills nothing and draws on a
+// rate-limit pool separate from message creation. The only budget this spends
+// is requests per minute, and it makes eight of them.
+console.log('Counting is free and separately rate-limited; this makes a handful of requests.\n');
 
-for (const target of TARGETS) {
-  const surface = await loadSurface(target);
-  const presentation = adapterFor(surface.kind).present(surface);
-  const local = analyse(surface).tokens.total;
+for (const model of MODELS) {
+  console.log(`model: ${model}`);
+  console.log('  ' + 'target'.padEnd(26), 'local'.padStart(8), 'actual'.padStart(8), 'delta'.padStart(9));
 
-  const withSurface = await count(presentation);
-  // The floor: the same request with nothing of the surface in it. Whatever the
-  // endpoint charges for an empty envelope is not the manifest's cost.
-  const withoutSurface = await count({ tools: [] });
-  const actual = withSurface - withoutSurface;
+  for (const target of TARGETS) {
+    const surface = await loadSurface(target);
+    const presentation = adapterFor(surface.kind).present(surface);
+    const local = analyse(surface).tokens.total;
 
-  const delta = ((local - actual) / actual) * 100;
-  const name = target.split('/').slice(-2).join('/');
-  console.log(
-    name.padEnd(28),
-    String(local).padStart(8),
-    String(actual).padStart(8),
-    `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%`.padStart(9),
-  );
+    const withSurface = await count(model, presentation);
+    // The floor: the same request with nothing of the surface in it. Whatever
+    // the endpoint charges for an empty envelope is not the manifest's cost.
+    const withoutSurface = await count(model, { tools: [] });
+    const actual = withSurface - withoutSurface;
+
+    const delta = ((local - actual) / actual) * 100;
+    const name = target.split('/').slice(-2).join('/');
+    console.log(
+      '  ' + name.padEnd(26),
+      String(local).padStart(8),
+      String(actual).padStart(8),
+      `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%`.padStart(9),
+    );
+  }
+  console.log();
 }
 
 console.log(
-  '\nA negative delta is an under-count: the surface costs more than inspect says.\n' +
-    'Write the numbers down before deciding whether they need a correction factor.',
+  'A negative delta is an under-count: the surface costs more than inspect says.\n' +
+    'Compare the two models before writing anything down — they are on different\n' +
+    'tokenisers, and a gap between them is a number inspect cannot pick offline.\n' +
+    'Only carry a correction factor if the error is consistent across both.',
 );
