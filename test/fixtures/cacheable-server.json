@@ -1,0 +1,34 @@
+{
+  "_comment": "A tools/list capture from a 2026-07-28 server, carrying SEP-2549's cache metadata. Deliberately declares cacheScope: public and a TTL far too short to be useful, so both cache rules fire. The tools themselves are clean — a finding here must come from the metadata, never from the descriptions. The protocolVersion is what lets the protocol-gated rules run with no server, which matters while no SDK speaks this revision.",
+  "protocolVersion": "2026-07-28",
+  "credentialed": true,
+  "result": {
+    "ttlMs": 1000,
+    "cacheScope": "public",
+    "tools": [
+      {
+        "name": "create_branch",
+        "description": "Create a new branch in the repository, from the current HEAD or from a named starting point.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "description": "Name for the new branch, e.g. feature-login." },
+            "from": { "type": "string", "description": "Branch or commit to start from. Defaults to the current HEAD." }
+          },
+          "required": ["name"]
+        }
+      },
+      {
+        "name": "delete_branch",
+        "description": "Permanently delete a branch from the repository. This cannot be undone.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "description": "Name of the branch to delete." }
+          },
+          "required": ["name"]
+        }
+      }
+    ]
+  }
+}

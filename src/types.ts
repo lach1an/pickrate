@@ -88,6 +88,32 @@ export interface SurfaceSource {
    * recorded on the surface rather than inferred later.
    */
   listOrderStable?: boolean;
+  /**
+   * Cache metadata the listing declared (SEP-2549), verbatim.
+   *
+   * Absent on any server predating `2026-07-28`, where the concept does not
+   * exist — which is why the rules that read this are gated on the protocol
+   * revision rather than firing at every server in the corpus.
+   */
+  listCache?: {
+    /** Freshness hint in milliseconds. */
+    ttlMs?: number;
+    /** `public` or `private`, per the spec's HTTP `Cache-Control` model. */
+    cacheScope?: string;
+  };
+  /**
+   * Protocol versions the server advertised via `server/discover`, when it
+   * answered one. Absent means it did not, which today means every server.
+   */
+  discoveredVersions?: string[];
+  /**
+   * Whether the listing was fetched with credentials attached.
+   *
+   * A boolean and never the header itself — invariant 10 holds for every
+   * report field. It exists so `public-cache-scope` can tell a catalogue that
+   * might vary per tenant from one that plainly cannot.
+   */
+  credentialed?: boolean;
   fetchedAt: string;
 }
 

@@ -66,22 +66,43 @@ export async function loadManifest(
   if (t.adapter !== 'mcp') throw new Error(`Not an MCP target: ${t.display}`);
   if (t.kind === 'file') return loadManifestFromFile(t.path);
 
+  const timeoutMs = options.timeoutMs ?? 30_000;
+
+  // The `2026-07-28` probe, ahead of the legacy handshake. It cannot go
+  // through the SDK: `Client.connect` performs `initialize` first, which is
+  // exactly the thing the new revision removed, and no shipped SDK version
+  // knows the method (1.30.0 still declares 2025-11-25 as latest). So it is a
+  // raw POST, HTTP only — under stdio the SDK owns the subprocess.
+  //
+  // Every failure path is silent by design: today *every* server declines
+  // this, and a probe that warned would be a warning on every run.
+  const discoveredVersions = t.kind === 'http' ? await discover(t.url, options, timeoutMs) : undefined;
+
   const transport = createTransport(t, options);
   const client = new Client(CLIENT_INFO, { capabilities: {} });
 
-  const timeoutMs = options.timeoutMs ?? 30_000;
   try {
     await withTimeout(client.connect(transport), timeoutMs, `connect to ${t.display}`);
+
+    // Cache metadata off the first page. Later pages may repeat it; the first
+    // is what a client caching the catalogue would act on, and disagreement
+    // between pages is a server bug this analyser does not yet model.
+    let listCache: SurfaceSource['listCache'];
 
     const listAll = async (): Promise<ToolDef[]> => {
       const tools: ToolDef[] = [];
       let cursor: string | undefined;
+      let first = true;
       do {
         const page = await withTimeout(
           client.listTools(cursor === undefined ? {} : { cursor }),
           timeoutMs,
           'tools/list',
         );
+        // `ResultSchema` is a loose object, so SEP-2549's keys survive parsing
+        // even though this SDK version has never heard of them.
+        if (first) listCache = readListCache(page);
+        first = false;
         for (const tool of page.tools) tools.push(normaliseTool(tool));
         cursor = page.nextCursor;
       } while (cursor !== undefined);
@@ -109,6 +130,9 @@ export async function loadManifest(
       ...(serverInfo ? { serverInfo: { name: serverInfo.name, version: serverInfo.version } } : {}),
       ...(protocolVersionOf(transport) ? { protocolVersion: protocolVersionOf(transport)! } : {}),
       ...(listOrderStable !== undefined ? { listOrderStable } : {}),
+      ...(listCache ? { listCache } : {}),
+      ...(discoveredVersions ? { discoveredVersions } : {}),
+      ...(options.headers && hasCredential(options.headers) ? { credentialed: true } : {}),
     };
 
     return { kind: 'mcp', items: tools, source };
@@ -139,6 +163,74 @@ export function sameOrder(first: ToolDef[], second: ToolDef[]): boolean | undefi
   return a.every((name, i) => name === b[i]);
 }
 
+/**
+ * SEP-2549's cache hints off a `tools/list` result.
+ *
+ * Both keys are optional and read defensively: this runs against whatever a
+ * server actually sent, and the point of the rules downstream is that servers
+ * get this wrong. A value of the wrong type is treated as absent — "declared
+ * something unusable" and "declared nothing" are the same finding here.
+ *
+ * Exported for the offline fixture path and its tests.
+ */
+export function readListCache(result: Record<string, unknown>): SurfaceSource['listCache'] {
+  const ttlMs = typeof result['ttlMs'] === 'number' ? result['ttlMs'] : undefined;
+  const cacheScope = typeof result['cacheScope'] === 'string' ? result['cacheScope'] : undefined;
+  if (ttlMs === undefined && cacheScope === undefined) return undefined;
+  return { ...(ttlMs !== undefined ? { ttlMs } : {}), ...(cacheScope !== undefined ? { cacheScope } : {}) };
+}
+
+/**
+ * Did this request carry credentials?
+ *
+ * Header *names* only — the values never leave this function, because no
+ * report field carries a credential (invariant 10). It exists so a `public`
+ * cache scope on a per-tenant catalogue is separable from one on a catalogue
+ * every caller sees identically.
+ */
+function hasCredential(headers: Record<string, string>): boolean {
+  return Object.keys(headers).some((name) => /^(authorization|proxy-authorization|cookie|x-api-key)$/i.test(name));
+}
+
+/** Versions advertised by `server/discover`, or `undefined` if it did not answer. */
+async function discover(
+  url: string,
+  options: LoadOptions,
+  timeoutMs: number,
+): Promise<string[] | undefined> {
+  try {
+    const response = await withTimeout(
+      fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json',
+          // SEP-2243: routing headers, so a gateway can dispatch without
+          // reading the body. Sent on the probe because a gateway that needs
+          // them to route is precisely the deployment this is aimed at.
+          'Mcp-Method': 'server/discover',
+          ...options.headers,
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'server/discover' }),
+      }),
+      timeoutMs,
+      'server/discover',
+    );
+    if (!response.ok) return undefined;
+
+    const body: unknown = await response.json();
+    const versions = (body as { result?: { protocolVersions?: unknown } }).result?.protocolVersions;
+    if (!Array.isArray(versions)) return undefined;
+
+    const strings = versions.filter((v): v is string => typeof v === 'string');
+    return strings.length > 0 ? strings : undefined;
+  } catch {
+    // A legacy server 404s, 405s, or returns a JSON-RPC error here. All of
+    // those mean "speak the old protocol", which is what happens next anyway.
+    return undefined;
+  }
+}
+
 /** Read a captured `tools/list` response. Lets the analyser run with no server. */
 export async function loadManifestFromFile(path: string): Promise<Surface> {
   const parsed: unknown = JSON.parse(await readFile(path, 'utf8'));
@@ -152,10 +244,36 @@ export async function loadManifestFromFile(path: string): Promise<Surface> {
     );
   }
 
+  // A capture keeps whatever the server sent alongside its tools, so the
+  // cache lints are exercisable from a fixture with no server — the same
+  // contract every other rule already has.
+  const result = Array.isArray(parsed)
+    ? {}
+    : ((parsed as { result?: Record<string, unknown> }).result ?? (parsed as Record<string, unknown>));
+  const listCache = readListCache(result);
+
+  // A capture may also record which revision produced it. Without that the
+  // protocol-gated rules cannot run offline at all, and there would be no way
+  // to exercise them without a live server on a spec that has no SDK yet.
+  const declared = (parsed as { protocolVersion?: unknown }).protocolVersion ?? result['protocolVersion'];
+  const protocolVersion = typeof declared === 'string' ? declared : undefined;
+
+  // Likewise whether the capture was taken against a credentialed endpoint —
+  // a flag, never a credential, so a capture can carry it into a repo safely.
+  const credentialed = (parsed as { credentialed?: unknown }).credentialed === true;
+
   return {
     kind: 'mcp',
     items: tools.map((tool) => normaliseTool(tool as Record<string, unknown>)),
-    source: { kind: 'file', adapter: 'mcp', target: path, fetchedAt: new Date().toISOString() },
+    source: {
+      kind: 'file',
+      adapter: 'mcp',
+      target: path,
+      fetchedAt: new Date().toISOString(),
+      ...(protocolVersion !== undefined ? { protocolVersion } : {}),
+      ...(listCache ? { listCache } : {}),
+      ...(credentialed ? { credentialed } : {}),
+    },
   };
 }
 

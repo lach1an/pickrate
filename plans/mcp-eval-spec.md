@@ -30,6 +30,10 @@ The differentiator survives, but it is narrower and better stated: **every exist
 
 All four Tier 1 SDKs (TypeScript, Python, Go, C#) speak `2026-07-28` as of today; Rust is in beta.
 
+**Checked against npm, 28 July 2026 — the TypeScript SDK does not.** `@modelcontextprotocol/sdk@1.30.0` is `latest`, and it still declares `LATEST_PROTOCOL_VERSION = '2025-11-25'` with no `server/discover` and no routing headers. So the dual-protocol connector cannot be built on the SDK yet, and the choice is to hand-roll the stateless transport against a spec document with no server to verify it on, or to wait. **Waiting, for now.**
+
+One thing that does *not* have to wait: `ResultSchema` is a Zod loose object, so unknown keys survive parsing. `ttlMs` and `cacheScope` are readable through the current SDK the moment a server sends them, which is why §12.1's lints landed ahead of the transport.
+
 ---
 
 ## 1. MCP in ten minutes

@@ -1,5 +1,11 @@
 import type { Rule } from '../../types.js';
-import { unstableListOrder } from './cache.js';
+import {
+  legacyProtocol,
+  missingCacheScope,
+  missingCacheTtl,
+  publicCacheScope,
+  unstableListOrder,
+} from './cache.js';
 import { missingToolDescription, nearDuplicateDescription, thinToolDescription } from './descriptions.js';
 import { enumCandidate, missingParamDescription } from './parameters.js';
 import { deepSchema, tokenBudget } from './shape.js';
@@ -20,7 +26,11 @@ import {
  */
 export const rules: Rule[] = [
   tokenBudget,
+  publicCacheScope,
   unstableListOrder,
+  missingCacheTtl,
+  missingCacheScope,
+  legacyProtocol,
   unparseableSkill,
   missingToolDescription,
   missingSkillDescription,
