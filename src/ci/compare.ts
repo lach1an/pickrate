@@ -1,6 +1,6 @@
 import { minNoise } from '../mutator/index.js';
 import { BaselineError, type StoredReport } from './report-file.js';
-import type { EvalReport, ReportDiff } from '../types.js';
+import type { EvalReport, ReasoningConfig, ReportDiff } from '../types.js';
 
 /**
  * Compare a run against a stored one.
@@ -84,10 +84,39 @@ function refuseMismatch(baseline: StoredReport, head: EvalReport): void {
         'Those are different measurements, not two points on one line.',
     );
   }
+  if (baseline.provider !== head.provider) {
+    throw new BaselineError(
+      `${baseline.path} was recorded through the ${baseline.provider} provider and this run used ` +
+        `${head.provider}. Two providers are two instruments, not two points on one line.`,
+    );
+  }
   if (baseline.model !== head.model) {
     throw new BaselineError(
       `${baseline.path} was recorded against ${baseline.model} and this run used ${head.model}. ` +
-        'A comparison across models is a number that looks like a regression and is a model swap.',
+        'A comparison across models is a number that looks like a regression and is a model swap. ' +
+        'Note that both are the ids the API reported, so an alias re-pointed underneath the baseline ' +
+        'lands here rather than passing silently.',
+    );
+  }
+  if (describeReasoning(baseline.reasoning) !== describeReasoning(head.reasoning)) {
+    throw new BaselineError(
+      `${baseline.path} was recorded at reasoning ${describeReasoning(baseline.reasoning)} and this run ` +
+        `used ${describeReasoning(head.reasoning)}. Effort is a ceiling on how hard the model tries; ` +
+        'moving it moves the score for reasons that have nothing to do with the surface.',
+    );
+  }
+  if (baseline.toolSearch !== head.toolSearch) {
+    throw new BaselineError(
+      `${baseline.path} was recorded with tool search ${baseline.toolSearch} and this run used ` +
+        `${head.toolSearch}. Eager and deferred loading are two regimes: the delta between them is a ` +
+        'finding in its own right, not a regression in the manifest.',
+    );
+  }
+  if (baseline.regimeHash !== head.regimeHash) {
+    throw new BaselineError(
+      `${baseline.path} was recorded under regime ${baseline.regimeHash} and this run ran under ` +
+        `${head.regimeHash}. Something about how the surface is put to the model changed — prompt text, ` +
+        'declaration shape, or the request itself. Re-record the baseline.',
     );
   }
   if ((baseline.presentation ?? null) !== (head.presentation ?? null)) {
@@ -110,6 +139,11 @@ function refuseMismatch(baseline: StoredReport, head: EvalReport): void {
         '. Re-record the baseline after changing the scenarios.',
     );
   }
+}
+
+/** One line, for a message and for comparing two configs by value. */
+function describeReasoning(config: ReasoningConfig): string {
+  return config.mode === 'none' ? 'none' : `${config.mode}:${config.effort ?? 'default'}`;
 }
 
 /**

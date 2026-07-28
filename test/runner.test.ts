@@ -3,32 +3,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { loadConfig } from '../src/config/index.js';
 import { loadManifestFromFile } from '../src/adapters/mcp/index.js';
-import type { Provider } from '../src/provider/index.js';
 import { mapPool, runEval, totalTrials } from '../src/runner/index.js';
-import type { Presentation } from '../src/adapters/index.js';
-import type { Scenario, TrialResult } from '../src/types.js';
+import { SpyProvider } from './helpers/spy-provider.js';
 
 const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
-
-/** Records how many trials were in flight at once, so we can assert the warm-up. */
-class SpyProvider implements Provider {
-  readonly model = 'spy';
-  readonly concurrencyAtStart: number[] = [];
-  private inFlight = 0;
-
-  async runTrial(_presentation: Presentation, scenario: Scenario): Promise<TrialResult> {
-    this.inFlight++;
-    this.concurrencyAtStart.push(this.inFlight);
-    await new Promise((resolve) => setTimeout(resolve, 2));
-    this.inFlight--;
-    return {
-      scenarioId: scenario.id,
-      calls: scenario.expect.tool === null ? [] : [{ name: scenario.expect.tool, args: {} }],
-      stopReason: 'tool_use',
-      usage: { inputTokens: 10, outputTokens: 5, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
-    };
-  }
-}
 
 describe('mapPool', () => {
   it('preserves input order regardless of completion order', async () => {

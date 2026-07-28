@@ -21,7 +21,23 @@ export function formatEvalReport(report: EvalReport, diff?: ReportDiff): string 
 
   out.push(`${pc.bold('pickrate run')}  ${pc.dim(report.source.target)}`);
   // The model under test is part of the result — never bury it.
-  out.push(`  ${pc.bold('model')}     ${report.model}`);
+  out.push(
+    `  ${pc.bold('model')}     ${report.model}` +
+      (report.requestedModel !== undefined ? pc.dim(`  (requested ${report.requestedModel})`) : ''),
+  );
+  // The rest of the instrument, on one line beside the score. The unit of
+  // comparison is model + reasoning config + loading regime, and a reader who
+  // cannot see all three cannot tell two measurements apart.
+  out.push(
+    pc.dim(
+      `  regime    ${report.provider}` +
+        `, reasoning ${report.reasoning.mode === 'none' ? 'none' : (report.reasoning.effort ?? 'default')}` +
+        // "eager"/"deferred" rather than the provider's name for the feature:
+        // the regime is a property of the measurement, and a skills report that
+        // says "tool search" reads like it measured the wrong thing.
+        `, ${report.toolSearch === 'on' ? 'deferred' : 'eager'} loading  ${report.regimeHash}`,
+    ),
+  );
   if (report.source.serverInfo) {
     out.push(pc.dim(`  server    ${report.source.serverInfo.name} ${report.source.serverInfo.version}`));
   }
@@ -203,9 +219,13 @@ function bar(score: number, passed: boolean): string {
 
 function formatCost(report: EvalReport): string {
   const { usage } = report;
+  // Said only when the model has a cache at all: absent is "no such concept",
+  // and printing "0 cached" for one of those describes a cache that never was.
   const tokens =
     `${usage.inputTokens.toLocaleString()} in / ${usage.outputTokens.toLocaleString()} out` +
-    `, ${usage.cacheReadInputTokens.toLocaleString()} cached`;
+    (usage.cacheReadInputTokens === undefined
+      ? ''
+      : `, ${usage.cacheReadInputTokens.toLocaleString()} cached`);
   return report.costUsd === undefined
     ? `${tokens} ${pc.dim('(no price on file for this model)')}`
     : `~${formatUsd(report.costUsd)}  ${pc.dim(`(${tokens})`)}`;

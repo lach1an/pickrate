@@ -10,9 +10,12 @@
     "                                       though it is a new failure against its 95% threshold",
     "  create-branch-named       80 ->  75  a 5-point drop, noise",
     "orphans is empty, so `delete_branch` reads as a new orphan.",
-    "The model is an alias rather than a dated snapshot, which must warn."
+    "The model is an alias rather than a dated snapshot, which must warn.",
+    "The provenance block must match what the replayed run produces exactly — provider, reasoning,",
+    "tool search and regime hash are all refused on, so a stale value here reads as a refusal",
+    "rather than as the comparison the rest of this fixture exists to exercise."
   ],
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "command": "run",
   "source": {
     "kind": "file",
@@ -21,6 +24,10 @@
     "fetchedAt": "2026-07-11T09:00:00.000Z"
   },
   "model": "claude-haiku-4-5",
+  "provider": "replay",
+  "reasoning": { "mode": "none" },
+  "toolSearch": "off",
+  "regimeHash": "19a70c657411be5b",
   "trials": 5,
   "startedAt": "2026-07-11T09:00:00.000Z",
   "durationMs": 41233,

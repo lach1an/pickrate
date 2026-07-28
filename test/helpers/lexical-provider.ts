@@ -1,6 +1,7 @@
 import { jaccard } from '../../src/analyser/rules/descriptions.js';
 import type { Presentation, ToolDeclaration } from '../../src/adapters/contract.js';
-import type { Provider } from '../../src/provider/index.js';
+import { regimeHash } from '../../src/provider/index.js';
+import type { ModelCapabilities, Provider, Regime } from '../../src/provider/index.js';
 import type { Scenario, ToolCall, TrialResult } from '../../src/types.js';
 
 /**
@@ -24,11 +25,30 @@ import type { Scenario, ToolCall, TrialResult } from '../../src/types.js';
  * `skill-tool` mode, the same as the thing under test.
  */
 export class LexicalProvider implements Provider {
+  readonly id = 'lexical';
   readonly model = 'lexical';
   readonly seen: string[] = [];
 
   /** Overlap below which it calls nothing — what makes restraint expressible. */
   constructor(private readonly cutoff = 0.08) {}
+
+  /** Nothing is sent, so nothing is cached — and the runner skips the warm-up. */
+  capabilitiesFor(): ModelCapabilities {
+    return {
+      cache: { population: 'none', writesBilled: false, readMultiplier: 0 },
+      toolSearch: 'unsupported',
+      reasoning: 'none',
+    };
+  }
+
+  regime(): Regime {
+    return {
+      provider: this.id,
+      reasoning: { mode: 'none' },
+      toolSearch: 'off',
+      hash: regimeHash({ provider: this.id, cutoff: this.cutoff }),
+    };
+  }
 
   async runTrial(presentation: Presentation, scenario: Scenario): Promise<TrialResult> {
     this.seen.push(scenario.id);

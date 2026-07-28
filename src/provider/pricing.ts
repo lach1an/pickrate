@@ -1,4 +1,5 @@
 import type { TrialUsage } from '../types.js';
+import { MODELS, specFor, type ModelSpec } from './models.js';
 
 export interface ModelPrice {
   /** USD per million input tokens. */
@@ -8,54 +9,105 @@ export interface ModelPrice {
 }
 
 /**
- * Prices in USD per million tokens, as of 2026-07-25.
+ * Base rates, derived from the model table.
  *
- * Used only to put an order-of-magnitude number in front of the user before
- * they spend money. An unknown model means the report omits cost rather than
- * guessing — a wrong number here is worse than no number.
+ * Kept as a named export because it was one before the table existed and
+ * nothing outside should have to care that it is now a view.
  */
-export const PRICES: Record<string, ModelPrice> = {
-  'claude-haiku-4-5': { input: 1, output: 5 },
-  'claude-sonnet-5': { input: 3, output: 15 },
-  'claude-sonnet-4-6': { input: 3, output: 15 },
-  'claude-opus-5': { input: 5, output: 25 },
-  'claude-opus-4-8': { input: 5, output: 25 },
-  'claude-opus-4-7': { input: 5, output: 25 },
-  'claude-fable-5': { input: 10, output: 50 },
-};
+export const PRICES: Record<string, ModelPrice> = Object.fromEntries(
+  Object.entries(MODELS).map(([id, spec]) => [id, { input: spec.input, output: spec.output }]),
+);
 
-/** Cache writes cost more than fresh input; reads cost far less. */
-export const CACHE_WRITE_MULTIPLIER = 1.25;
-export const CACHE_READ_MULTIPLIER = 0.1;
-
-/** Cost of a usage total, or undefined when the model has no price entry. */
+/**
+ * Cost of **one request's** usage, or undefined when the model has no entry.
+ *
+ * One request, deliberately: the long-context meter is a property of a single
+ * request, so handing this a total summed across a hundred trials would trip
+ * the threshold on every run. Use `costOfTrials` for a whole run.
+ */
 export function costOf(model: string, usage: TrialUsage): number | undefined {
-  const price = PRICES[model];
-  if (!price) return undefined;
+  const spec = specFor(model);
+  if (spec === undefined) return undefined;
+  return priceUsage(spec, usage);
+}
 
-  const perInputToken = price.input / 1_000_000;
+/** Total cost of a run: every trial priced on its own, then summed. */
+export function costOfTrials(model: string, usages: Iterable<TrialUsage>): number | undefined {
+  const spec = specFor(model);
+  if (spec === undefined) return undefined;
+
+  let total = 0;
+  for (const usage of usages) total += priceUsage(spec, usage);
+  return total;
+}
+
+/**
+ * The pure core, taking a spec rather than an id.
+ *
+ * Exported so a model shape that is not in the table — a long-context meter, a
+ * provider that bills writes at zero — can be priced in a test by construction
+ * rather than by finding a real model that happens to have that property.
+ */
+export function priceUsage(spec: ModelSpec, usage: TrialUsage): number {
+  const cacheWrite = usage.cacheCreationInputTokens ?? 0;
+  const cacheRead = usage.cacheReadInputTokens ?? 0;
+
+  // The meter is on the whole request's input, cached or not: the tokens are in
+  // the context window whichever bucket billed them.
+  const requestInput = usage.inputTokens + cacheWrite + cacheRead;
+  const long =
+    spec.longContext !== undefined && requestInput > spec.longContext.thresholdTokens
+      ? spec.longContext
+      : undefined;
+
+  // Above the threshold the *whole* request bills at the elevated rate, not
+  // just the tokens past the line.
+  const input = (spec.input * (long?.input ?? 1)) / 1_000_000;
+  const output = (spec.output * (long?.output ?? 1)) / 1_000_000;
+
+  const writeMultiplier = spec.cache.writesBilled ? (spec.cache.writeMultiplier ?? 1) : 0;
+
   return (
-    usage.inputTokens * perInputToken +
-    usage.cacheCreationInputTokens * perInputToken * CACHE_WRITE_MULTIPLIER +
-    usage.cacheReadInputTokens * perInputToken * CACHE_READ_MULTIPLIER +
-    (usage.outputTokens * price.output) / 1_000_000
+    usage.inputTokens * input +
+    cacheWrite * input * writeMultiplier +
+    cacheRead * input * spec.cache.readMultiplier +
+    usage.outputTokens * output
   );
 }
 
+/**
+ * Zero of everything the caller can be sure exists.
+ *
+ * Deliberately without the cache keys: absent means *this model has no such
+ * concept*, and zero means *it has one and it was free*. Seeding a sum with
+ * zeroes would turn every total into the second statement.
+ */
 export const EMPTY_USAGE: TrialUsage = {
   inputTokens: 0,
   outputTokens: 0,
-  cacheCreationInputTokens: 0,
-  cacheReadInputTokens: 0,
 };
 
 export function addUsage(a: TrialUsage, b: TrialUsage): TrialUsage {
+  const cacheCreation = addOptional(a.cacheCreationInputTokens, b.cacheCreationInputTokens);
+  const cacheRead = addOptional(a.cacheReadInputTokens, b.cacheReadInputTokens);
+
   return {
     inputTokens: a.inputTokens + b.inputTokens,
     outputTokens: a.outputTokens + b.outputTokens,
-    cacheCreationInputTokens: a.cacheCreationInputTokens + b.cacheCreationInputTokens,
-    cacheReadInputTokens: a.cacheReadInputTokens + b.cacheReadInputTokens,
+    ...(cacheCreation !== undefined ? { cacheCreationInputTokens: cacheCreation } : {}),
+    ...(cacheRead !== undefined ? { cacheReadInputTokens: cacheRead } : {}),
   };
+}
+
+/**
+ * Absent plus absent stays absent; absent plus present is present.
+ *
+ * The whole point of the optionality dies one line below where it was made if
+ * this coerces either side to zero.
+ */
+function addOptional(a: number | undefined, b: number | undefined): number | undefined {
+  if (a === undefined && b === undefined) return undefined;
+  return (a ?? 0) + (b ?? 0);
 }
 
 export function sumUsage(usages: Iterable<TrialUsage>): TrialUsage {

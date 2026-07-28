@@ -116,6 +116,10 @@ describe('markdown mutation report', () => {
   const report = {
     source: { adapter: 'mcp', target: './git-server.json', kind: 'file', fetchedAt: '' },
     model: 'claude-haiku-4-5',
+    provider: 'test',
+    reasoning: { mode: 'none' },
+    toolSearch: 'off',
+    regimeHash: 'test-regime',
     trials: 10,
     baseline: { runs: [{}, {}], score: 0.9, noise: 0.1, observedNoise: 0 },
     mutants: [

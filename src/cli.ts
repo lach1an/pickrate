@@ -273,6 +273,10 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
   const onProgress = json ? undefined : renderProgress();
   const report = await runEval(config, surface, provider, {
     presentation,
+    // Passed so the runner can decide whether warming the cache is worth a
+    // serialised trial: below the model's minimum cacheable prefix there is no
+    // entry to warm, and the warm-up buys a round trip and nothing else.
+    ...(estimate ? { estimate } : {}),
     ...(onProgress ? { onProgress } : {}),
   });
   await provider.close?.();

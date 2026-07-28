@@ -55,12 +55,22 @@ export {
 } from './ci/report-file.js';
 export {
   costOf,
+  costOfTrials,
+  priceUsage,
   PRICES,
+  MODELS,
+  specFor,
+  capabilitiesOf,
+  regimeHash,
   formatUsd,
   sumUsage,
+  type CacheBehaviour,
   type CostEstimate,
+  type ModelCapabilities,
   type ModelPrice,
+  type ModelSpec,
   type Provider,
+  type Regime,
 } from './provider/index.js';
 export { AnthropicProvider, DEFAULT_MODEL } from './provider/anthropic.js';
 export { ReplayProvider } from './provider/replay.js';

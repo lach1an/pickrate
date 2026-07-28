@@ -316,8 +316,16 @@ export interface ToolCall {
 export interface TrialUsage {
   inputTokens: number;
   outputTokens: number;
-  cacheCreationInputTokens: number;
-  cacheReadInputTokens: number;
+  /**
+   * Omitted when the model has no such concept — **not merely zero**.
+   *
+   * Absent means "this model does not cache"; present-at-zero means "it does,
+   * and nothing was cached". Those are different facts about a run, and the
+   * arithmetic in `addUsage` is careful to keep them apart. Same distinction
+   * `TokenReport.deferred` preserves for skills' bodies.
+   */
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
 }
 
 /**
@@ -374,9 +382,55 @@ export interface ScenarioScore {
   errors: number;
 }
 
-export interface EvalReport {
+/** How much the model was allowed to reason. Part of the measurement. */
+export interface ReasoningConfig {
+  /** `none` when the model exposes no reasoning control. */
+  mode: 'none' | 'effort';
+  /** The effort level, when `mode` is `effort`. */
+  effort?: string;
+}
+
+/**
+ * Whether the model saw the whole surface or had to search for it.
+ *
+ * The independent variable, and never left at the provider's default: eager
+ * and deferred are two regimes, and a comparison that does not record which one
+ * ran blames the manifest for the retriever.
+ */
+export type ToolSearchState = 'off' | 'on';
+
+/**
+ * Everything about the instrument, as opposed to the thing measured.
+ *
+ * The unit of comparison is model + reasoning config + loading regime. Two runs
+ * that differ in any of these are two measurements, not two points on one line,
+ * which is why all of it is stored and why `diffReports` refuses on a mismatch.
+ */
+export interface RunProvenance {
+  /** Which provider ran it, e.g. `anthropic`. */
+  provider: string;
+  reasoning: ReasoningConfig;
+  toolSearch: ToolSearchState;
+  /**
+   * Hash of the request envelope: prompt bytes, declaration form, reasoning,
+   * tool-search state, provider — and never the surface, which varies per
+   * mutant by construction and is identified by `source` instead.
+   */
+  regimeHash: string;
+}
+
+export interface EvalReport extends RunProvenance {
   source: SurfaceSource;
+  /**
+   * The model that actually ran, as the API reported it — not the id requested.
+   *
+   * An alias routes to a dated target, so a report storing the requested id
+   * does not pin what ran. Recording the resolved one turns an alias re-point
+   * from a warning into a refused comparison.
+   */
   model: string;
+  /** The id asked for, when it differs from `model` — i.e. when it was an alias. */
+  requestedModel?: string;
   /**
    * How the surface was put to the model, when the adapter offers a choice.
    *
@@ -456,9 +510,10 @@ export interface MutantRecord {
   report: EvalReport;
 }
 
-export interface MutationReport {
+export interface MutationReport extends RunProvenance {
   source: SurfaceSource;
   model: string;
+  requestedModel?: string;
   presentation?: string;
   /** Trials per scenario, per run. */
   trials: number;
