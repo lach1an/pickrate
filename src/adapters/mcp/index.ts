@@ -16,17 +16,34 @@ const CLIENT_INFO = { name: 'pickrate', version: '0.0.0' } as const;
  * A tool the model picks is a tool it names, so `present` hands the tools
  * straight through and `project` is the identity. The seam earns its keep on
  * the skills side, where those two come apart.
+ *
+ * Declarations are sorted by name, which is a measurement decision and not a
+ * tidy-up: tools render *before* the cache breakpoint, so a server that
+ * reorders between the warm-up and the fan-out invalidates the prefix on every
+ * trial — the same ~10× bill an unstable `systemSuffix` buys, with no error and
+ * no warning. `2026-07-28` requires deterministic ordering (SEP-2549); the
+ * servers measured today overwhelmingly predate it and promise nothing. Sorting
+ * here makes the presentation byte-stable whatever the server does.
+ *
+ * Order is fixed rather than preserved because it is part of what is measured:
+ * every run then sees one order, so two runs are comparable. `Surface.items`
+ * stays in the order the server sent, so the analyser can still report on it.
  */
 export const mcpAdapter: Adapter = {
   id: 'mcp',
   load: (target, options) => loadManifest(target, options),
   present: (surface): Presentation =>
     identityPresentation(
-      toolsOf(surface).map((tool) => ({
-        name: tool.name,
-        ...(tool.description !== undefined ? { description: tool.description } : {}),
-        inputSchema: tool.inputSchema,
-      })),
+      toolsOf(surface)
+        .map((tool) => ({
+          name: tool.name,
+          ...(tool.description !== undefined ? { description: tool.description } : {}),
+          inputSchema: tool.inputSchema,
+        }))
+        // Code-unit order, not `localeCompare`: collation varies with the
+        // host's ICU data and locale, and a prefix that sorts differently on
+        // CI than on a laptop is exactly the instability this is fixing.
+        .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
     ),
 };
 
@@ -56,17 +73,32 @@ export async function loadManifest(
   try {
     await withTimeout(client.connect(transport), timeoutMs, `connect to ${t.display}`);
 
-    const tools: ToolDef[] = [];
-    let cursor: string | undefined;
-    do {
-      const page = await withTimeout(
-        client.listTools(cursor === undefined ? {} : { cursor }),
-        timeoutMs,
-        'tools/list',
-      );
-      for (const tool of page.tools) tools.push(normaliseTool(tool));
-      cursor = page.nextCursor;
-    } while (cursor !== undefined);
+    const listAll = async (): Promise<ToolDef[]> => {
+      const tools: ToolDef[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await withTimeout(
+          client.listTools(cursor === undefined ? {} : { cursor }),
+          timeoutMs,
+          'tools/list',
+        );
+        for (const tool of page.tools) tools.push(normaliseTool(tool));
+        cursor = page.nextCursor;
+      } while (cursor !== undefined);
+      return tools;
+    };
+
+    const tools = await listAll();
+
+    // Second listing, for the ordering check only. One extra round trip against
+    // a failure that is otherwise invisible until the invoice arrives is not a
+    // close call — and it costs no model spend, so `inspect` still needs no key.
+    // A re-list that throws leaves the answer *absent*, never `true`: "we did
+    // not find out" and "it was stable" are different facts (see SurfaceSource).
+    const listOrderStable = await listAll().then(
+      (second) => sameOrder(tools, second),
+      () => undefined,
+    );
 
     const serverInfo = client.getServerVersion();
     const source: SurfaceSource = {
@@ -76,12 +108,35 @@ export async function loadManifest(
       fetchedAt: new Date().toISOString(),
       ...(serverInfo ? { serverInfo: { name: serverInfo.name, version: serverInfo.version } } : {}),
       ...(protocolVersionOf(transport) ? { protocolVersion: protocolVersionOf(transport)! } : {}),
+      ...(listOrderStable !== undefined ? { listOrderStable } : {}),
     };
 
     return { kind: 'mcp', items: tools, source };
   } finally {
     await client.close().catch(() => {});
   }
+}
+
+/**
+ * Did two listings agree on order?
+ *
+ * Names only, and positionally. `undefined` when the two calls returned
+ * *different catalogues* — a tool appeared, vanished or was swapped — because
+ * that is a changed surface rather than a reordered one, and reporting it as an
+ * ordering defect sends someone to fix the wrong thing. Absent stays absent.
+ *
+ * Exported so the comparison is testable without a server.
+ */
+export function sameOrder(first: ToolDef[], second: ToolDef[]): boolean | undefined {
+  const names = (tools: ToolDef[]) => tools.map((tool) => tool.name);
+  const [a, b] = [names(first), names(second)];
+  if (a.length !== b.length) return undefined;
+
+  const sorted = (list: string[]) => [...list].sort();
+  const [sa, sb] = [sorted(a), sorted(b)];
+  if (!sa.every((name, i) => name === sb[i])) return undefined;
+
+  return a.every((name, i) => name === b[i]);
 }
 
 /** Read a captured `tools/list` response. Lets the analyser run with no server. */

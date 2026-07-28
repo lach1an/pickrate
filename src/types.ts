@@ -78,6 +78,16 @@ export interface SurfaceSource {
   serverInfo?: { name: string; version: string };
   /** Protocol version negotiated, when known. */
   protocolVersion?: string;
+  /**
+   * Whether a second listing returned the items in the same order as the first.
+   *
+   * Absent means we did not find out — a file fixture, or a re-list that
+   * failed — and is deliberately not the same statement as `true`. A server
+   * that reorders between calls invalidates the cached prompt prefix behind it
+   * on every reconnect, silently and at real cost, which is why this is
+   * recorded on the surface rather than inferred later.
+   */
+  listOrderStable?: boolean;
   fetchedAt: string;
 }
 

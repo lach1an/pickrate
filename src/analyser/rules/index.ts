@@ -1,4 +1,5 @@
 import type { Rule } from '../../types.js';
+import { unstableListOrder } from './cache.js';
 import { missingToolDescription, nearDuplicateDescription, thinToolDescription } from './descriptions.js';
 import { enumCandidate, missingParamDescription } from './parameters.js';
 import { deepSchema, tokenBudget } from './shape.js';
@@ -19,6 +20,7 @@ import {
  */
 export const rules: Rule[] = [
   tokenBudget,
+  unstableListOrder,
   unparseableSkill,
   missingToolDescription,
   missingSkillDescription,
@@ -34,6 +36,7 @@ export const rules: Rule[] = [
 
 export const rulesById = new Map(rules.map((rule) => [rule.id, rule]));
 
+export * from './cache.js';
 export * from './descriptions.js';
 export * from './parameters.js';
 export * from './shape.js';
