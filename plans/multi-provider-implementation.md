@@ -5,6 +5,40 @@
 
 ---
 
+## Progress, 30 July 2026
+
+**Step 3 has landed as code, and its calibration run has not happened — the account is out of quota.** `src/provider/openai.ts`, the `providerFor()` registry, `--provider`, the OpenAI rows in `MODELS`, and `--record` are all in, typechecked, and covered by 54 new offline assertions (327 passing, still no key needed). What is *not* settled is decisions A and B, because both need the run: `gpt-5.6-luna` and `gpt-5.6-terra` both return `429 exceeded your current quota`. The provider therefore ships **with no `DEFAULT_MODEL`** — `--provider openai` without `--model` is an error naming the candidates, on the grounds that a default picked to make the code compile becomes the model every published comparison quietly ran on.
+
+**One sequencing correction to §1 below: "answer A and B first, then write the provider" is circular.** A/B is 20 trials through pickrate, which cannot run until a provider exists. The order is provider first (with no default chosen), then the run, then the default. Nothing in the landed code presumes an answer.
+
+**Step 0b is half-answered, and the answer inverts the documented expectation.** The OpenAI counting endpoint is reachable *with zero quota* — unlike Anthropic's, where the balance check gates the whole API ahead of any per-endpoint billing — so the OpenAI half of the sweep ran today for nothing. `scripts/calibrate-tokens.ts` now sweeps both providers and skips an unreachable one rather than dying.
+
+| target | local | actual (`gpt-5.6-luna`) | delta |
+|---|---|---|---|
+| `git-server.json` (MCP) | 227 | 185 | **+22.7%** |
+| `messy-server.json` (MCP) | 273 | 181 | **+50.8%** |
+| `skills/clean` | 82 | 145 | **−43.4%** |
+| `skills/messy` | 314 | 391 | **−19.7%** |
+
+**The research predicted a consistent 15–20% under-count. The measured error flips sign by adapter and spans −43% to +51%.** MCP surfaces over-count, skills surfaces under-count. And because `inspect` counts with `gpt-tokenizer` on `o200k_base` — an *OpenAI* tokeniser — measured against OpenAI's own counter, tokeniser mismatch is largely ruled out for these rows: the residual is per-declaration structural overhead, and it differs between the two adapters.
+
+**So the correction-factor question resolves to "no", and it resolves independently of the missing Claude rows.** A single factor cannot correct an error that changes sign by adapter, and a per-adapter factor over an error this variable would look authoritative while being wrong — which is worse than the raw number. `TokenReport.approximate` stays. `inspect`'s copy is deliberately *not* changed yet: it already says `approximate`, the rows above are one provider, and the number matters most to Claude users whose two tokeniser generations are still unmeasured. Naming a magnitude in shipped copy on this evidence would over-claim.
+
+**Still blocked on funding, and only on funding:** the Claude half of 0b, and decisions A and B. Both accounts are empty — Anthropic returns `400 credit balance is too low`, OpenAI `429 exceeded your current quota`.
+
+**Verified live along the way** (the "Still to verify" list): item 1, the flattened `Responses.FunctionTool` shape, confirmed against the installed SDK's types *and* accepted by the counting endpoint. Item 2, free **and** usable at zero balance. Item 4 dissolved rather than verified — trials set `store: false` unconditionally, since pickrate never retrieves a response and storing every prompt of somebody else's manifest is not a default worth inheriting. Items 3 and 5 still need the paid run.
+
+**Two corrections to shipped code found while doing this, both in the dangerous direction:**
+
+- **`estimateRunUsd` ignored the minimum cacheable prefix.** Below it nothing caches, but the estimate priced trials 2..N as cache *reads* at 0.1×. On `claude-haiku-4-5`, whose 4096 minimum is the highest in the line-up, that under-stated a small-manifest run by close to 10× — and under-stating is the bill nobody agreed to. The fixture surfaces are 227–273 tokens, so this was every offline run.
+- **The two providers report overlapping token buckets.** Anthropic's `input_tokens` *excludes* cached tokens; OpenAI's is the total, with `cached_tokens` and `cache_write_tokens` as subsets. `TrialUsage` is disjoint and `priceUsage` sums all three, so passing the raw numbers through would bill the cached prefix twice — at full rate and again at 0.1×. `test/openai-trial.test.ts` asserts the corrected mapping costs less than the naive one.
+
+**One gap this opened:** `test/fixtures/trials/git-server-openai.json` does not exist, because the run that would record it did not happen. `--record` is in place so that when it does, step 4's offline Δ fixture comes out of the same spend rather than a second one.
+
+**Cache behaviour cannot be verified on the current fixtures at all,** and that is a corpus problem rather than a funding one. Every fixture surface is 227–273 tokens, well under the 1024-token minimum prefix, so nothing caches and `cache_write_tokens` will read zero however much is spent. Confirming the 1.25× write multiplier — the one number in `MODELS` that is not on the public pricing table — needs a surface above 1024 tokens, which means M5's corpus.
+
+---
+
 ## Progress, 25 July 2026
 
 **Landed:** step 0 (truncation guard), step 1 (capabilities, two-axis cache, `contract.ts` split, conditional warm-up), step 2 in full (neutral usage, model table, per-model pricing with the long-context meter, report provenance at `SCHEMA_VERSION` 3), step 5 (docs). Corrections 0.1, 0.2, 0.4, 0.5 and 0.6 are all applied, and 0.3's bump-once-and-absorb-everything was taken as written. Tests: `truncation`, `capabilities`, `pricing`, `usage`, plus the widened refusal set in `compare` and the updated freeze in `schema` — 273 passing, all offline.
