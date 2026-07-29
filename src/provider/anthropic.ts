@@ -1,5 +1,4 @@
 import Anthropic from '@anthropic-ai/sdk';
-import pc from 'picocolors';
 import type { Presentation, ToolDeclaration } from '../adapters/contract.js';
 import type { Scenario, ToolCall, TrialResult, TrialUsage } from '../types.js';
 import { regimeHash } from './contract.js';
@@ -12,13 +11,14 @@ import type {
   ToolSearchState,
 } from './contract.js';
 import { capabilitiesOf, specFor } from './models.js';
-import { priceUsage } from './pricing.js';
+import { estimateRunUsd } from './pricing.js';
+import { CredentialError, EFFORT, SYSTEM_PROMPT } from './prompt.js';
 
 export const PROVIDER_ID = 'anthropic';
 export const DEFAULT_MODEL = 'claude-haiku-4-5';
+const ENV_VAR = 'ANTHROPIC_API_KEY';
 
 /** What the request asks for, recorded on every report. */
-const EFFORT = 'low';
 const REASONING: ReasoningConfig = { mode: 'effort', effort: EFFORT };
 
 /** Eager: the model is handed the whole surface. See the regime notes below. */
@@ -32,19 +32,6 @@ const TOOL_SEARCH: ToolSearchState = 'off';
  * difference is part of what makes two runs incomparable.
  */
 const DECLARATION_FORM = 'anthropic.messages.tools.input_schema';
-
-/**
- * The system prompt every trial shares.
- *
- * Kept deliberately thin and byte-stable. Thin because the thing under test is
- * the server's tool descriptions, and any instruction here that helps the model
- * choose is a thumb on the scale. Byte-stable because it carries the cache
- * breakpoint — one interpolated timestamp here and the whole run costs 10×.
- */
-const SYSTEM_PROMPT =
-  'You are an assistant with access to a set of tools. ' +
-  'Use a tool when it is the right way to satisfy the request. ' +
-  'If none of the tools fit, answer directly without calling one.';
 
 /**
  * Finish reasons that mean the model ran out of room, not that it chose to stop.
@@ -288,25 +275,13 @@ function promptShape(
   };
 }
 
-/** Missing credentials produce an SDK message that doesn't say what to do. */
-export class CredentialError extends Error {
-  constructor(detail: string, provider = PROVIDER_ID, envVar = 'ANTHROPIC_API_KEY') {
-    super(
-      `${detail}\n` +
-        `  pickrate run and mutate need model access. The ${provider} provider reads ${envVar}.\n` +
-        `  ${pc.dim('pickrate inspect needs no credentials at all.')}`,
-    );
-    this.name = 'CredentialError';
-  }
-}
-
 function throwIfCredentialProblem(error: unknown): void {
   if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) {
-    throw new CredentialError(error.message);
+    throw new CredentialError(error.message, PROVIDER_ID, ENV_VAR);
   }
   // Thrown before any request when the SDK cannot resolve a credential source.
   if (error instanceof Error && /resolve authentication method/i.test(error.message)) {
-    throw new CredentialError('No Anthropic credentials found.');
+    throw new CredentialError('No Anthropic credentials found.', PROVIDER_ID, ENV_VAR);
   }
 }
 
@@ -354,13 +329,11 @@ function usageOf(usage: Anthropic.Usage): TrialUsage {
 }
 
 /**
- * Assumes the first trial writes the cache and the rest read it, which is what
- * the runner's warm-then-fan-out is for. Output tokens are a rough allowance —
- * a tool call is small, and the estimate exists to convey magnitude.
+ * Priced by model id, for a model this provider serves.
  *
- * Priced through the same `priceUsage` the report uses, so the warm-up trial
- * carries the model's cache-write multiplier instead of being quietly billed as
- * plain input.
+ * The cache assumption now follows the model's population style rather than
+ * being hardcoded to warm-then-fan-out — see `estimateRunUsd`, which both
+ * providers share so the two cannot drift apart.
  */
 export function estimateUsd(
   model: string,
@@ -369,20 +342,5 @@ export function estimateUsd(
 ): number | undefined {
   const spec = specFor(model);
   if (!spec) return undefined;
-
-  const OUTPUT_TOKENS_PER_TRIAL = 80;
-  const warm = priceUsage(spec, {
-    inputTokens: 0,
-    outputTokens: OUTPUT_TOKENS_PER_TRIAL,
-    cacheCreationInputTokens: inputTokensPerTrial,
-    cacheReadInputTokens: 0,
-  });
-  const cached = priceUsage(spec, {
-    inputTokens: 0,
-    outputTokens: OUTPUT_TOKENS_PER_TRIAL,
-    cacheCreationInputTokens: 0,
-    cacheReadInputTokens: inputTokensPerTrial,
-  });
-
-  return warm + Math.max(0, totalTrials - 1) * cached;
+  return estimateRunUsd(spec, inputTokensPerTrial, totalTrials);
 }

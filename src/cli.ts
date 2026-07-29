@@ -17,10 +17,10 @@ import {
 import { diffReports } from './ci/compare.js';
 import { readReportFile } from './ci/report-file.js';
 import { Exit, type ExitCode } from './exit.js';
-import { AnthropicProvider, CredentialError } from './provider/anthropic.js';
 import { formatUsd } from './provider/pricing.js';
 import { ReplayProvider } from './provider/replay.js';
-import type { CostEstimate, Provider } from './provider/index.js';
+import { CredentialError, providerFor, PROVIDER_IDS } from './provider/index.js';
+import type { CostEstimate, Provider, ProviderChoice } from './provider/index.js';
 import {
   BASELINE_RUNS,
   DEFAULT_MUTANTS,
@@ -44,7 +44,8 @@ import {
 import { formatMutationReport } from './report/mutation.js';
 import { formatAnalysis } from './report/table.js';
 import { runEval, totalTrials } from './runner/index.js';
-import type { CiGates, EvalConfig, GateResult, Severity, SurfaceKind } from './types.js';
+import type { RunProgress } from './runner/index.js';
+import type { CiGates, EvalConfig, GateResult, Severity, SurfaceKind, TrialResult } from './types.js';
 
 /** Duplicated from `package.json`; the schema-freeze test asserts they match. */
 export const VERSION = '0.1.0';
@@ -74,9 +75,11 @@ ${pc.bold('run options')}
   --dry-run               print the cost estimate and exit without spending
   --yes                   skip the cost confirmation
   --model <id>            override defaults.model
+  --provider <id>         ${PROVIDER_IDS.join(' | ')} (inferred from the model id)
   --trials <n>            override defaults.trials
   --target <t>            override the config's target
   --replay <file>         replay recorded trials instead of calling a model
+  --record <file>         save this run's raw trials, replayable offline later
   --presentation <mode>   skills only: skill-tool (default) or pseudo-tool
   --baseline <file>       compare against a stored JSON report
   --max-regression <0..1> worst per-scenario drop allowed, against --baseline
@@ -89,7 +92,7 @@ ${pc.bold('mutate options')}
   --operators <ids>       comma-separated: blank-description, swap-descriptions,
                           inject-decoys (default: all of them)
   --min-score <0..1>      exit 1 when the mutation score falls below this
-  plus --dry-run, --yes, --model, --trials, --presentation from run.
+  plus --dry-run, --yes, --model, --provider, --trials, --presentation from run.
   ${pc.dim(`Costs ${BASELINE_RUNS} clean runs plus one per mutant — the clean runs are the`)}
   ${pc.dim('noise floor, and a drop smaller than that means nothing.')}
 
@@ -130,8 +133,10 @@ export async function main(argv: string[]): Promise<ExitCode> {
       'dry-run': { type: 'boolean', default: false },
       yes: { type: 'boolean', default: false },
       model: { type: 'string' },
+      provider: { type: 'string' },
       trials: { type: 'string' },
       replay: { type: 'string' },
+      record: { type: 'string' },
       presentation: { type: 'string' },
       baseline: { type: 'string' },
       'max-regression': { type: 'string' },
@@ -248,7 +253,7 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
   const replay = values.replay as string | undefined;
   const provider: Provider = replay
     ? await ReplayProvider.fromFile(replay)
-    : new AnthropicProvider({ model: config.defaults.model });
+    : providerFor(providerChoice(config, values));
 
   // The same presentation the runner will use, so the estimate prices the
   // request that actually runs rather than an approximation of it.
@@ -270,7 +275,23 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
     }
   }
 
-  const onProgress = json ? undefined : renderProgress();
+  const render = json ? undefined : renderProgress();
+
+  // A live run is the expensive part of this whole tool, and the trials it
+  // produces are replayable offline forever. Recording them is therefore worth a
+  // flag on its own: without one, developing against a second provider means
+  // paying again for trials that were already bought once. `RunProgress` already
+  // carries every trial, so this collects rather than re-plumbing the runner.
+  const recordTo = values.record as string | undefined;
+  const recorded: TrialResult[] = [];
+  const onProgress =
+    recordTo === undefined
+      ? render
+      : (progress: RunProgress) => {
+          recorded.push(progress.trial);
+          render?.(progress);
+        };
+
   const report = await runEval(config, surface, provider, {
     presentation,
     // Passed so the runner can decide whether warming the cache is worth a
@@ -280,6 +301,11 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
     ...(onProgress ? { onProgress } : {}),
   });
   await provider.close?.();
+
+  if (recordTo !== undefined) {
+    await writeFile(recordTo, `${JSON.stringify(recorded, null, 2)}\n`);
+    if (!json) process.stderr.write(pc.dim(`  recorded ${recorded.length} trials to ${recordTo}\n`));
+  }
 
   const ci = gatesFor(config.ci, values);
   const baseline = values.baseline as string | undefined;
@@ -333,7 +359,7 @@ async function mutate(
   }
 
   const surface = await loadSurface(config.target, loadOptions);
-  const provider: Provider = new AnthropicProvider({ model: config.defaults.model });
+  const provider: Provider = providerFor(providerChoice(config, values));
 
   const mode = (values.presentation as string | undefined) ?? config.defaults.presentation;
   const presentation = adapterFor(surface.kind).present(surface, mode !== undefined ? { mode } : {});
@@ -428,6 +454,25 @@ async function emit(format: Format, values: Values, rendered: Rendered): Promise
  * the scenarios it judges. Flags exist so a workflow can tighten one without
  * editing the repo, not so it can hold the whole policy.
  */
+/**
+ * Which provider and model to run, merging flags over config.
+ *
+ * `--provider` and `--model` are run-level flags and never config keys: a stored
+ * config that silently switches provider changes what the numbers mean on an
+ * invocation that looks identical to the one it was reviewed at. Model stays
+ * readable from config because it was already, and the report records what
+ * actually ran either way.
+ */
+function providerChoice(config: EvalConfig, values: Values): ProviderChoice {
+  const model = (values.model as string | undefined) ?? config.defaults.model;
+  const provider = values.provider as string | undefined;
+
+  return {
+    ...(model !== undefined ? { model } : {}),
+    ...(provider !== undefined ? { provider } : {}),
+  };
+}
+
 function gatesFor(ci: CiGates | undefined, values: Values): CiGates {
   const failOn = values['fail-on'] as string | undefined;
 

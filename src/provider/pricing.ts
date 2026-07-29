@@ -116,6 +116,77 @@ export function sumUsage(usages: Iterable<TrialUsage>): TrialUsage {
   return total;
 }
 
+/**
+ * A whole run's estimated cost, priced through `priceUsage` per request.
+ *
+ * Output tokens are a flat allowance — a tool call is small, and the estimate
+ * exists to convey magnitude. On a model that reasons, that allowance is a lower
+ * bound, because reasoning bills as output and is not predictable from the input;
+ * whether the preflight therefore has to become a range is open (decision B) and
+ * is a user-facing promise, so it is not being decided by default here.
+ *
+ * Below the model's minimum cacheable prefix, no cache assumption applies at
+ * all: a prefix under the line silently does not cache — no error, no entry — so
+ * every trial pays full input rate. This is the same fact the runner's
+ * conditional warm-up reads, and getting it wrong here is worse than getting it
+ * wrong there: the runner wastes a round trip, while the estimate under-reports
+ * a small-manifest run by close to the read multiplier. On the default model,
+ * whose minimum is 4096 — the highest in the line-up — that is most runs of a
+ * small surface.
+ *
+ * Otherwise the assumption follows the model, and the two cases differ in kind:
+ *
+ * - `explicit-breakpoint` — the runner warms one trial before fanning out, so
+ *   exactly one request writes the prefix and the rest read it. The estimate can
+ *   say that because the runner guarantees it.
+ * - `automatic-prefix` — there is no write to serialise against, so the runner
+ *   does not warm, and trials that start concurrently can *all* miss a prefix
+ *   none of them has populated yet. The real write-to-read ratio is a
+ *   measurement nobody has taken, so every trial is priced as a write: an upper
+ *   bound. Over-stating is a confirmation someone accepts; under-stating is a
+ *   bill they did not agree to.
+ */
+export function estimateRunUsd(
+  spec: ModelSpec,
+  inputTokensPerTrial: number,
+  totalTrials: number,
+): number {
+  const OUTPUT_TOKENS_PER_TRIAL = 80;
+  const write = (tokens: number): TrialUsage => ({
+    inputTokens: 0,
+    outputTokens: OUTPUT_TOKENS_PER_TRIAL,
+    cacheCreationInputTokens: tokens,
+    cacheReadInputTokens: 0,
+  });
+
+  const minimum = spec.cache.minimumPrefixTokens;
+  if (
+    spec.cache.population === 'none' ||
+    (minimum !== undefined && inputTokensPerTrial < minimum)
+  ) {
+    return (
+      totalTrials *
+      priceUsage(spec, {
+        inputTokens: inputTokensPerTrial,
+        outputTokens: OUTPUT_TOKENS_PER_TRIAL,
+      })
+    );
+  }
+
+  if (spec.cache.population === 'automatic-prefix') {
+    return totalTrials * priceUsage(spec, write(inputTokensPerTrial));
+  }
+
+  const cached = priceUsage(spec, {
+    inputTokens: 0,
+    outputTokens: OUTPUT_TOKENS_PER_TRIAL,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: inputTokensPerTrial,
+  });
+
+  return priceUsage(spec, write(inputTokensPerTrial)) + Math.max(0, totalTrials - 1) * cached;
+}
+
 export function formatUsd(amount: number): string {
   if (amount < 0.01) return `<$0.01`;
   return `$${amount.toFixed(2)}`;

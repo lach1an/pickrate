@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import { analyse } from '../src/analyser/index.js';
 import { loadManifestFromFile } from '../src/adapters/mcp/index.js';
 import { estimateUsd } from '../src/provider/anthropic.js';
-import { costOf, costOfTrials, priceUsage } from '../src/provider/pricing.js';
+import { costOf, costOfTrials, estimateRunUsd, priceUsage } from '../src/provider/pricing.js';
 import { specFor, type ModelSpec } from '../src/provider/models.js';
 import { injectDecoys } from '../src/mutator/index.js';
 
@@ -166,5 +166,57 @@ describe('the preflight estimate', () => {
 
   it('says nothing for a model it has no price for', () => {
     assert.equal(estimateUsd('some-unreleased-model', 1000, 10), undefined);
+  });
+});
+
+describe('the run estimate and the minimum cacheable prefix', () => {
+  /**
+   * Below the minimum a prefix silently does not cache, so every trial pays full
+   * input rate. Assuming one write and N-1 reads under the line under-reports by
+   * close to the read multiplier — and under-reporting is the direction that
+   * produces a bill nobody agreed to.
+   */
+  const spec = specFor('claude-haiku-4-5')!;
+  const minimum = spec.cache.minimumPrefixTokens!;
+
+  it('prices every trial at full input rate under the minimum', () => {
+    const trials = 20;
+    const tokens = minimum - 1;
+    const perTrial = priceUsage(spec, { inputTokens: tokens, outputTokens: 80 });
+
+    assert.equal(estimateRunUsd(spec, tokens, trials).toFixed(9), (trials * perTrial).toFixed(9));
+  });
+
+  it('costs more than the cached assumption would have claimed', () => {
+    const tokens = minimum - 1;
+    const cached =
+      priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheCreationInputTokens: tokens }) +
+      19 * priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheReadInputTokens: tokens });
+
+    assert.ok(estimateRunUsd(spec, tokens, 20) > cached);
+  });
+
+  it('takes the cached path once the prefix clears the minimum', () => {
+    // One write plus N-1 reads, which is what the runner's warm-up guarantees.
+    const tokens = minimum;
+    const expected =
+      priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheCreationInputTokens: tokens }) +
+      19 * priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheReadInputTokens: tokens });
+
+    assert.equal(estimateRunUsd(spec, tokens, 20).toFixed(9), expected.toFixed(9));
+  });
+
+  it('prices every trial as a write on an automatic-prefix model', () => {
+    // No write to serialise against means the runner does not warm, so
+    // concurrent trials can all miss a prefix none of them has populated.
+    const openai = specFor('gpt-5.6-luna')!;
+    const tokens = 10_000;
+    const perTrial = priceUsage(openai, {
+      inputTokens: 0,
+      outputTokens: 80,
+      cacheCreationInputTokens: tokens,
+    });
+
+    assert.equal(estimateRunUsd(openai, tokens, 20).toFixed(9), (20 * perTrial).toFixed(9));
   });
 });

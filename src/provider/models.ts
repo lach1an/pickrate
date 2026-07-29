@@ -9,7 +9,7 @@ import type { CacheBehaviour, ModelCapabilities } from './contract.js';
  * serves an id) is two entries and stays code; this is the part where a third
  * provider should be a data edit rather than a new branch.
  *
- * Prices are USD per million tokens, as of 2026-07-25. They exist to put an
+ * Prices are USD per million tokens, verified 2026-07-30. They exist to put an
  * order of magnitude in front of someone before they spend money. An unknown
  * model means the report omits cost rather than guessing — a wrong number here
  * is worse than no number.
@@ -65,6 +65,46 @@ function anthropicCache(minimumPrefixTokens: number): CacheBehaviour {
     minimumPrefixTokens,
   };
 }
+
+/**
+ * OpenAI's current line-up caches automatically on the prefix, with a 1024-token
+ * minimum below which nothing caches at all, and reads at 0.1×.
+ *
+ * `writesBilled` is the axis that varies: 5.6 and later report and bill
+ * `cache_write_tokens`, earlier tiers populate for free. The 1.25× figure comes
+ * from the July 2026 research and is not on the public pricing table, which
+ * lists only input, cached input and output — so it is the one number here that
+ * a live run should confirm against reported `cache_write_tokens`.
+ *
+ * Note what is *absent* for an unbilled-write model: no `writeMultiplier`, and
+ * the provider omits `cacheCreationInputTokens` entirely rather than reporting a
+ * zero. Zero would say "the write was free"; absent says "there is no such
+ * concept here", which is the true statement.
+ */
+function openaiCache(writesBilled: boolean): CacheBehaviour {
+  return {
+    population: 'automatic-prefix',
+    writesBilled,
+    ...(writesBilled ? { writeMultiplier: 1.25 } : {}),
+    readMultiplier: 0.1,
+    minimumPrefixTokens: 1024,
+  };
+}
+
+/**
+ * Above 272K input tokens the whole request bills at 2× input and 1.5× output.
+ *
+ * This is the meter §2c was written for, and the first real one in the table:
+ * every Claude model bills one rate across its window. `inject-decoys` exists to
+ * make manifests bigger, so a mutation session on a large surface is exactly the
+ * shape that crosses this line — and pricing a run's summed usage rather than
+ * each request would trip it on any long enough run.
+ */
+const OPENAI_LONG_CONTEXT: LongContextMeter = {
+  thresholdTokens: 272_000,
+  input: 2,
+  output: 1.5,
+};
 
 export const MODELS: Record<string, ModelSpec> = {
   // The minimum cacheable prefix is *not* monotonic across generations — 512 on
@@ -137,6 +177,46 @@ export const MODELS: Record<string, ModelSpec> = {
     reasoning: 'effort-scale',
     toolSearch: 'supported',
     contextWindow: 1_000_000,
+  },
+
+  // Every current 5.6 tier reasons by default and bills reasoning as output, so
+  // the output rate is the one that decides what a run costs — not the input
+  // rate the manifest size would suggest. Which of these is the right
+  // counterpart to a cheap Claude model is decision A, and is not settled here.
+  //
+  // `gpt-5.4-mini` is deliberately absent: the key still serves it, but it is
+  // not on the published models page, so its context window and cache behaviour
+  // cannot be verified. An unlisted model means the report omits cost, which is
+  // the intended outcome for a row nobody can check.
+  'gpt-5.6-luna': {
+    provider: 'openai',
+    input: 1,
+    output: 6,
+    cache: openaiCache(true),
+    longContext: OPENAI_LONG_CONTEXT,
+    reasoning: 'effort-scale',
+    toolSearch: 'supported',
+    contextWindow: 1_050_000,
+  },
+  'gpt-5.6-terra': {
+    provider: 'openai',
+    input: 2.5,
+    output: 15,
+    cache: openaiCache(true),
+    longContext: OPENAI_LONG_CONTEXT,
+    reasoning: 'effort-scale',
+    toolSearch: 'supported',
+    contextWindow: 1_050_000,
+  },
+  'gpt-5.6-sol': {
+    provider: 'openai',
+    input: 5,
+    output: 30,
+    cache: openaiCache(true),
+    longContext: OPENAI_LONG_CONTEXT,
+    reasoning: 'effort-scale',
+    toolSearch: 'supported',
+    contextWindow: 1_050_000,
   },
 };
 
