@@ -1,7 +1,7 @@
 import { adapterFor } from '../adapters/index.js';
 import type { Presentation } from '../adapters/contract.js';
 import type { Provider } from '../provider/index.js';
-import { costOf, sumUsage } from '../provider/pricing.js';
+import { sumUsage } from '../provider/pricing.js';
 import { runEval, type RunProgress } from '../runner/index.js';
 import { operators as allOperators, operatorsById } from './operators/index.js';
 import type { Mutant, Operator } from './contract.js';
@@ -199,11 +199,20 @@ export function scoreMutation(input: ScoreMutationInput): MutationReport {
   const first = input.baselineRuns[0]!;
   const everyReport = [...input.baselineRuns, ...records.map((record) => record.report)];
   const usage = sumUsage(everyReport.map((report) => report.usage));
-  const costUsd = costOf(first.model, usage);
+  // Summed from each run's own figure rather than re-priced off the total: a
+  // long-context meter reads per request, and one run's cost is already right.
+  const costUsd = everyReport.some((report) => report.costUsd === undefined)
+    ? undefined
+    : everyReport.reduce((sum, report) => sum + (report.costUsd ?? 0), 0);
 
   return {
     source: first.source,
     model: first.model,
+    ...(first.requestedModel !== undefined ? { requestedModel: first.requestedModel } : {}),
+    provider: first.provider,
+    reasoning: first.reasoning,
+    toolSearch: first.toolSearch,
+    regimeHash: first.regimeHash,
     ...(first.presentation !== undefined ? { presentation: first.presentation } : {}),
     trials: input.trials,
     baseline,

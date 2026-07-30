@@ -97,7 +97,8 @@ This one needs model access — `ANTHROPIC_API_KEY`, or an `ant auth login` prof
 
 ```
 pickrate run  npx -y @modelcontextprotocol/server-filesystem /tmp
-  model     claude-haiku-4-5
+  model     claude-haiku-4-5-20251001  (requested claude-haiku-4-5)
+  regime    anthropic, reasoning low, eager loading  4f2c9a1b73e05d6a
   trials    3 × 6 scenarios in 8.2s
   cost      ~<$0.01  (412 in / 1,088 out, 21,600 cached)
 
@@ -196,8 +197,10 @@ Scenario semantics are otherwise identical — around 20 prompts, half that shou
 
 - **It never executes anything.** One model turn per trial, `tools/call` is never issued and no skill body is ever loaded — a `delete_branch` scenario must not delete anything on your server.
 - **It never retries a result.** Transport errors are retried; a trial that picked the wrong thing is *data*, and retrying it would bias every pass rate upward.
-- **It runs the first trial alone**, so the surface lands in the prompt cache before the rest fan out. Without that, a large surface is re-billed at full price on every trial.
-- **The model under test is part of the result**, so the report names it prominently.
+- **It runs the first trial alone** when that helps, so the surface lands in the prompt cache before the rest fan out. Without it, a large surface is re-billed at full price on every trial. It is skipped when the model caches automatically, or when the surface is below the model's minimum cacheable prefix — under that line a prefix silently does not cache at all, and the warm-up buys a round trip and nothing else.
+- **It never scores a truncated response as restraint.** A response that ran out of output budget before it emitted a tool call did not measure a choice: it is an errored trial, excluded from the denominator, not a model that correctly called nothing.
+- **The whole instrument is part of the result**, not just the model. The report names the provider, the reasoning config and the loading regime beside the score, plus a hash of the request envelope — because the unit of comparison is model + reasoning config + loading regime, and scores are never averaged across any of the three.
+- **The model recorded is the one that ran**, taken from the response rather than the request. An alias routes to a dated target, so a report that stored the id you asked for would not pin what answered.
 
 ## `pickrate mutate` — how much should you trust the report?
 
@@ -325,11 +328,11 @@ pickrate run pickrate.yaml --baseline pickrate-baseline.json # on PRs
 Two rules keep it honest:
 
 - **A diff between two single runs is not a noise measurement.** `mutate` measures its floor by running the clean surface twice; `--baseline` has one run per side and cannot. So the tolerance is floored at `1/trials` and the report says where an honest floor comes from. Without that, the build goes red on the noise as readily as on the regression.
-- **A mismatched baseline is refused, not projected.** A different schema version, adapter, model, presentation or scenario set is an error and exit 2. A comparison across models is a number that looks like a regression and is a model swap.
+- **A mismatched baseline is refused, not projected.** A different schema version, adapter, model, provider, reasoning config, loading regime, regime hash, presentation or scenario set is an error and exit 2. A comparison across any of those is a number that looks like a regression and is a change of instrument.
 
 It gates on the **worst per-scenario drop, never the mean** — a mean hides one scenario collapsing behind five that improved, and the collapsed one is the one headed for production.
 
-**Pin a dated model id** in any config used for comparison. `claude-haiku-4-5` is an alias the provider can re-point underneath a stored baseline, which turns a model update into something indistinguishable from your regression; `--baseline` warns when it sees one.
+**Pin a dated model id** in any config used for comparison. `claude-haiku-4-5` is an alias the provider can re-point underneath a stored baseline, which turns a model update into something indistinguishable from your regression; `--baseline` warns when a *stored* baseline names one. Reports written by this version record the dated id the API actually returned, so a re-pointed alias now shows up as a refused comparison rather than a silent one — but a baseline recorded before that, or a provider that does not resolve aliases, still relies on the warning.
 
 ### Why the baseline is a committed file
 

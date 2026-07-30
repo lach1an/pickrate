@@ -1,49 +1,96 @@
-import type { Presentation } from '../adapters/contract.js';
-import type { Scenario, TrialResult } from '../types.js';
+import { AnthropicProvider, DEFAULT_MODEL, PROVIDER_ID as ANTHROPIC } from './anthropic.js';
+import { CANDIDATE_MODELS, OpenAIProvider, PROVIDER_ID as OPENAI } from './openai.js';
+import type { Provider } from './contract.js';
+import { specFor } from './models.js';
 
-export { costOf, PRICES, EMPTY_USAGE, addUsage, sumUsage, formatUsd } from './pricing.js';
+export { costOf, costOfTrials, priceUsage, estimateRunUsd, PRICES, EMPTY_USAGE, addUsage, sumUsage, formatUsd } from './pricing.js';
 export type { ModelPrice } from './pricing.js';
+export { MODELS, specFor, capabilitiesOf } from './models.js';
+export type { LongContextMeter, ModelSpec } from './models.js';
 
-export interface CostEstimate {
-  /** Input tokens for a single trial, including the whole surface. */
-  inputTokensPerTrial: number;
-  totalTrials: number;
-  /** Assumes every trial after the first reads the surface from cache. */
-  estimatedUsd?: number;
-  model: string;
+// The interfaces live in `contract.ts` and are re-exported here so existing
+// imports keep working. They are split out because a registry that imports
+// every provider, in the same module every provider imports its interfaces
+// from, is a cycle — one that type-checks and then throws at runtime.
+export { regimeHash } from './contract.js';
+export type {
+  CacheBehaviour,
+  CostEstimate,
+  ModelCapabilities,
+  Provider,
+  ReasoningConfig,
+  Regime,
+  ToolSearchState,
+} from './contract.js';
+export { CredentialError, SYSTEM_PROMPT, EFFORT } from './prompt.js';
+
+export const PROVIDER_IDS = [ANTHROPIC, OPENAI];
+
+export interface ProviderChoice {
+  /** Model id as requested. Absent means "this provider's default", if it has one. */
+  model?: string;
+  /** Explicit `--provider`, which wins over anything inferred from the model id. */
+  provider?: string;
 }
 
 /**
- * The seam between "ask a model" and everything downstream.
+ * Which provider serves a model id.
  *
- * Only implementations of this interface may import a model SDK — the runner,
- * scorer and reporter consume `TrialResult` and nothing else. That is what
- * lets the scorer be developed and tested with no API key and no spend, and
- * what will let a second provider drop in for multi-model comparison later.
+ * Two entries, so it stays code — the *properties* of a model are data, in
+ * `models.ts`, and that is the part a third provider should only have to edit.
+ * Same idiom as `parseTarget` plus `--adapter` on the surface side, deliberately.
  *
- * Providers take a `Presentation`, not a `Surface`: deciding how a surface is
- * put to a model belongs to the adapter that understands it, and a provider
- * that never sees a `Surface` cannot accidentally grow adapter-specific
- * behaviour.
+ * Detection is by prefix and never by fallback: an unrecognised id is an error
+ * naming both providers, because the alternative is silently measuring a
+ * different model than the one someone typed and reporting it as the one they
+ * asked for. `o*` (o1, o3, o4-mini) is legacy and must not anchor detection —
+ * it would swallow every future `opus-*` alias someone reasonably tries.
  */
-export interface Provider {
-  /** Model id, reported prominently — the model under test is part of the result. */
-  readonly model: string;
+export function providerFor(choice: ProviderChoice = {}): Provider {
+  const { model, provider } = choice;
 
-  /**
-   * Run one scenario once. Implementations must not execute tools: we measure
-   * what the model *selects*, and a `delete_branch` scenario must never delete
-   * anything on the user's server.
-   */
-  runTrial(presentation: Presentation, scenario: Scenario): Promise<TrialResult>;
+  if (provider !== undefined && !PROVIDER_IDS.includes(provider)) {
+    throw new Error(
+      `Unknown provider '${provider}'. Known providers: ${PROVIDER_IDS.join(', ')}.`,
+    );
+  }
 
-  /** Priced preflight, so nobody discovers the cost after paying it. */
-  estimate?(
-    presentation: Presentation,
-    scenarios: Scenario[],
-    totalTrials: number,
-  ): Promise<CostEstimate>;
+  const id = provider ?? inferProvider(model);
 
-  /** Release any underlying client. */
-  close?(): Promise<void>;
+  if (id === OPENAI) {
+    if (model === undefined) {
+      throw new Error(
+        `The openai provider has no default model yet — pass --model.\n` +
+          `  Candidates: ${CANDIDATE_MODELS.join(', ')}.\n` +
+          `  Which tier is the right counterpart to a cheap Claude model is an open\n` +
+          `  measurement decision (decision A), and a default chosen to fill this gap\n` +
+          `  would become the model every published comparison quietly ran on.`,
+      );
+    }
+    return new OpenAIProvider({ model });
+  }
+
+  return new AnthropicProvider(model !== undefined ? { model } : {});
+}
+
+/**
+ * Model id → provider id, with the table consulted first.
+ *
+ * The table is authoritative where it has an entry, so a model that does not fit
+ * either naming convention is a data edit rather than a new branch here.
+ */
+function inferProvider(model: string | undefined): string {
+  if (model === undefined) return ANTHROPIC;
+
+  const spec = specFor(model);
+  if (spec !== undefined) return spec.provider;
+
+  if (model.startsWith('claude-')) return ANTHROPIC;
+  if (model.startsWith('gpt-')) return OPENAI;
+
+  throw new Error(
+    `Cannot tell which provider serves model '${model}'.\n` +
+      `  Known providers: ${PROVIDER_IDS.join(', ')}. Pass --provider to say which.\n` +
+      `  Anthropic ids start with 'claude-' (default: ${DEFAULT_MODEL}); OpenAI ids start with 'gpt-'.`,
+  );
 }

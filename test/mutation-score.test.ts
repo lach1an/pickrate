@@ -178,6 +178,10 @@ function reportOf(scores: Record<string, number>): EvalReport {
   return {
     source,
     model: 'claude-haiku-4-5',
+    provider: 'test',
+    reasoning: { mode: 'none' },
+    toolSearch: 'off',
+    regimeHash: 'test-regime',
     trials: 20,
     scenarios,
     orphans: [],

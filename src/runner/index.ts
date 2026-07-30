@@ -1,10 +1,10 @@
 import { adapterFor } from '../adapters/index.js';
 import type { Presentation } from '../adapters/contract.js';
 import { trialsFor } from '../config/index.js';
-import { costOf } from '../provider/pricing.js';
+import { costOfTrials } from '../provider/pricing.js';
 import { scoreRun, totalUsage, type ScoreOptions } from '../scorer/index.js';
 import type { EvalConfig, EvalReport, Scenario, Surface, TrialResult } from '../types.js';
-import type { Provider } from '../provider/index.js';
+import type { CostEstimate, Provider } from '../provider/contract.js';
 import { mapPool } from './pool.js';
 
 export { mapPool } from './pool.js';
@@ -24,6 +24,16 @@ export interface RunOptions {
    * own adapter does, which is what a normal run wants.
    */
   presentation?: Presentation;
+  /**
+   * The preflight estimate, when one was taken.
+   *
+   * The runner needs the size of the prefix to decide whether warming it is
+   * worth a serialised trial — below a model's minimum cacheable prefix there
+   * is no entry to warm. The CLI has already computed this, so passing it
+   * through is plumbing rather than a second call. Absent means warm anyway,
+   * which is the safe default.
+   */
+  estimate?: CostEstimate;
 }
 
 /**
@@ -76,31 +86,42 @@ export async function runEval(
   const results: TrialResult[] = [];
 
   // Warm-up: one trial alone, so the manifest lands in the cache before the
-  // rest go out in parallel. Skipping this makes a run roughly 10× dearer.
-  const first = jobs[0];
+  // rest go out in parallel. Skipping it when it was needed makes a run roughly
+  // 10× dearer; doing it when it was not costs one round trip for nothing.
+  const warmed = shouldWarm(provider, options.estimate);
+  const first = warmed ? jobs[0] : undefined;
   if (first) {
-    const trial = await provider.runTrial(presentation,first.scenario);
+    const trial = await provider.runTrial(presentation, first.scenario);
     results.push(trial);
     report(first.scenario, trial);
   }
 
-  const rest = await mapPool(jobs.slice(1), config.defaults.concurrency, async (job) => {
-    const trial = await provider.runTrial(presentation,job.scenario);
-    report(job.scenario, trial);
-    return trial;
-  });
+  const rest = await mapPool(
+    warmed ? jobs.slice(1) : jobs,
+    config.defaults.concurrency,
+    async (job) => {
+      const trial = await provider.runTrial(presentation, job.scenario);
+      report(job.scenario, trial);
+      return trial;
+    },
+  );
   results.push(...rest);
 
   const trialsByScenario = new Map<string, TrialResult[]>();
   for (const scenario of config.scenarios) trialsByScenario.set(scenario.id, []);
   for (const trial of results) trialsByScenario.get(trial.scenarioId)?.push(trial);
 
+  // Read after everything has resolved, so there is no race: the model id the
+  // API reported, which is what actually ran, rather than the alias asked for.
+  const model = provider.resolvedModel ?? provider.model;
+  const regime = provider.regime(presentation);
+
   const durationMs = performance.now() - started;
   const { scenarios, orphans } = scoreRun(
     {
       config,
       surface,
-      model: provider.model,
+      model,
       trialsByScenario,
       startedAt: startedAt.toISOString(),
       durationMs,
@@ -109,11 +130,18 @@ export async function runEval(
   );
 
   const usage = totalUsage(trialsByScenario);
-  const costUsd = costOf(provider.model, usage);
+  // Priced per trial and summed, never off the total: a long-context meter is a
+  // property of one request, and a run's summed input clears any threshold.
+  const costUsd = costOfTrials(model, results.map((trial) => trial.usage));
 
   return {
     source: surface.source,
-    model: provider.model,
+    model,
+    ...(model !== provider.model ? { requestedModel: provider.model } : {}),
+    provider: regime.provider,
+    reasoning: regime.reasoning,
+    toolSearch: regime.toolSearch,
+    regimeHash: regime.hash,
     ...(presentation.mode !== undefined ? { presentation: presentation.mode } : {}),
     trials: config.defaults.trials,
     scenarios,
@@ -123,6 +151,23 @@ export async function runEval(
     startedAt: startedAt.toISOString(),
     durationMs,
   };
+}
+
+/**
+ * Is serialising the first trial worth a round trip?
+ *
+ * Only when the model caches on an explicit breakpoint — with automatic prefix
+ * caching there is nothing to mark and no write to serialise against — and only
+ * when the prefix is big enough to cache at all. Under the minimum a prefix
+ * silently does not cache: no error, no entry, and a warm-up that bought
+ * nothing. With no estimate to go on, warm: the asymmetry is one wasted round
+ * trip against a run that costs ten times its estimate.
+ */
+function shouldWarm(provider: Provider, estimate: CostEstimate | undefined): boolean {
+  const { cache } = provider.capabilitiesFor(provider.model);
+  if (cache.population !== 'explicit-breakpoint') return false;
+  if (estimate === undefined || cache.minimumPrefixTokens === undefined) return true;
+  return estimate.inputTokensPerTrial >= cache.minimumPrefixTokens;
 }
 
 /** Total trials a config will run, for the preflight estimate. */

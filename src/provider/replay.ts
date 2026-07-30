@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import type { Presentation } from '../adapters/contract.js';
 import type { Scenario, TrialResult } from '../types.js';
-import type { Provider } from './index.js';
+import { regimeHash } from './contract.js';
+import type { ModelCapabilities, Provider, Regime } from './contract.js';
 
 /**
  * A provider backed by recorded trials instead of a live model.
@@ -15,6 +16,7 @@ import type { Provider } from './index.js';
  * fixture of 5 trials can answer a 20-trial run with the same distribution.
  */
 export class ReplayProvider implements Provider {
+  readonly id = 'replay';
   readonly model: string;
   private readonly byScenario = new Map<string, TrialResult[]>();
   private readonly cursor = new Map<string, number>();
@@ -46,6 +48,41 @@ export class ReplayProvider implements Provider {
       model ?? (typeof recordedModel === 'string' ? recordedModel : undefined),
       typeof recordedMode === 'string' ? recordedMode : undefined,
     );
+  }
+
+  /**
+   * Nothing is cached, because nothing is sent. Declaring it means the runner
+   * skips the warm-up trial rather than serialising one against a file — which
+   * it should always have done.
+   */
+  capabilitiesFor(): ModelCapabilities {
+    return {
+      cache: { population: 'none', writesBilled: false, readMultiplier: 0 },
+      toolSearch: 'unsupported',
+      reasoning: 'none',
+    };
+  }
+
+  /**
+   * The regime of the run that produced the recording, as far as the file says.
+   *
+   * A fixture written before regimes existed cannot claim one, so this reports
+   * the replay's own — honest about the fact that a recording is being replayed
+   * rather than borrowing the provenance of the run that made it.
+   */
+  regime(presentation: Presentation): Regime {
+    const reasoning = { mode: 'none' as const };
+    return {
+      provider: this.id,
+      reasoning,
+      toolSearch: 'off',
+      hash: regimeHash({
+        provider: this.id,
+        model: this.model,
+        mode: presentation.mode ?? null,
+        recordedMode: this.recordedMode ?? null,
+      }),
+    };
   }
 
   async runTrial(presentation: Presentation, scenario: Scenario): Promise<TrialResult> {

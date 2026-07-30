@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { SCHEMA_VERSION } from '../report/json.js';
-import type { SurfaceKind } from '../types.js';
+import type { ReasoningConfig, SurfaceKind, ToolSearchState } from '../types.js';
 
 /**
  * Reading a stored report back is the moment `SCHEMA_VERSION` stops being
@@ -23,6 +23,17 @@ export interface StoredReport {
   schemaVersion: number;
   command: string;
   model: string;
+  /**
+   * The instrument, which is refused on rather than tolerated.
+   *
+   * Required from schema 3 onward. A baseline that cannot say which provider,
+   * reasoning config or loading regime produced it cannot be compared against
+   * one that can — the difference would read as a change in the surface.
+   */
+  provider: string;
+  reasoning: ReasoningConfig;
+  toolSearch: ToolSearchState;
+  regimeHash: string;
   presentation?: string;
   trials: number;
   startedAt: string;
@@ -92,6 +103,10 @@ export function parseReportFile(raw: unknown, path = 'baseline.json'): StoredRep
     schemaVersion: report.schemaVersion,
     command: 'run',
     model: string(report.model, `${path}.model`),
+    provider: string(report.provider, `${path}.provider`),
+    reasoning: reasoning(report.reasoning, `${path}.reasoning`),
+    toolSearch: toolSearch(report.toolSearch, `${path}.toolSearch`),
+    regimeHash: string(report.regimeHash, `${path}.regimeHash`),
     ...(typeof report.presentation === 'string' ? { presentation: report.presentation } : {}),
     trials: typeof report.trials === 'number' ? report.trials : 0,
     startedAt: typeof report.startedAt === 'string' ? report.startedAt : 'unknown',
@@ -107,6 +122,24 @@ function object(value: unknown, path: string): Record<string, unknown> {
     throw new BaselineError(`${path}: expected an object, got ${json(value)}`);
   }
   return value as Record<string, unknown>;
+}
+
+function reasoning(value: unknown, path: string): ReasoningConfig {
+  const config = object(value, path);
+  if (config.mode !== 'none' && config.mode !== 'effort') {
+    throw new BaselineError(`${path}.mode is ${json(config.mode)}, expected "none" or "effort".`);
+  }
+  return {
+    mode: config.mode,
+    ...(typeof config.effort === 'string' ? { effort: config.effort } : {}),
+  };
+}
+
+function toolSearch(value: unknown, path: string): ToolSearchState {
+  if (value !== 'on' && value !== 'off') {
+    throw new BaselineError(`${path} is ${json(value)}, expected "on" or "off".`);
+  }
+  return value;
 }
 
 function string(value: unknown, path: string): string {

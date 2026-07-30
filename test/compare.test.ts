@@ -112,6 +112,51 @@ describe('a mismatched baseline is refused, not projected', () => {
     });
   });
 
+  it('refuses a different provider', async () => {
+    // Two providers are two instruments. The delta between them is a finding
+    // worth publishing; presented as a regression it is a lie.
+    const stored: StoredReport = { ...(await baseline()), provider: 'openai' };
+    await assert.rejects(async () => diffReports(stored, await replayReport()), (error: unknown) => {
+      assert.ok(error instanceof BaselineError);
+      assert.match(error.message, /two instruments/);
+      return true;
+    });
+  });
+
+  it('refuses a different reasoning config', async () => {
+    // Effort is a ceiling on how hard the model tries, so moving it moves the
+    // score for reasons that have nothing to do with the surface.
+    const stored: StoredReport = {
+      ...(await baseline()),
+      reasoning: { mode: 'effort', effort: 'high' },
+    };
+    await assert.rejects(async () => diffReports(stored, await replayReport()), (error: unknown) => {
+      assert.ok(error instanceof BaselineError);
+      assert.match(error.message, /reasoning effort:high/);
+      return true;
+    });
+  });
+
+  it('refuses a different loading regime', async () => {
+    const stored: StoredReport = { ...(await baseline()), toolSearch: 'on' };
+    await assert.rejects(async () => diffReports(stored, await replayReport()), (error: unknown) => {
+      assert.ok(error instanceof BaselineError);
+      assert.match(error.message, /two regimes/);
+      return true;
+    });
+  });
+
+  it('refuses a changed regime hash even when everything named matches', async () => {
+    // The catch-all: prompt text or declaration shape moved underneath a
+    // baseline whose provider, model, effort and regime all still agree.
+    const stored: StoredReport = { ...(await baseline()), regimeHash: 'deadbeefdeadbeef' };
+    await assert.rejects(async () => diffReports(stored, await replayReport()), (error: unknown) => {
+      assert.ok(error instanceof BaselineError);
+      assert.match(error.message, /how the surface is put to the model changed/);
+      return true;
+    });
+  });
+
   it('refuses a different adapter', async () => {
     const stored: StoredReport = { ...(await baseline()), adapter: 'skills' };
     await assert.rejects(async () => diffReports(stored, await replayReport()), BaselineError);

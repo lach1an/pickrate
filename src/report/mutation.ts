@@ -118,9 +118,14 @@ function pct(value: number): string {
 function formatCost(report: MutationReport): string {
   const runs = report.baseline.runs.length + report.mutants.length;
   const { usage } = report;
+  // See `formatCost` in report/eval.ts: absent means the model has no cache,
+  // which is not the same statement as "nothing was cached".
   const tokens =
     `${usage.inputTokens.toLocaleString()} in / ${usage.outputTokens.toLocaleString()} out` +
-    `, ${usage.cacheReadInputTokens.toLocaleString()} cached, over ${runs} runs`;
+    (usage.cacheReadInputTokens === undefined
+      ? ''
+      : `, ${usage.cacheReadInputTokens.toLocaleString()} cached`) +
+    `, over ${runs} runs`;
 
   return report.costUsd === undefined
     ? `${tokens} ${pc.dim('(no price on file for this model)')}`

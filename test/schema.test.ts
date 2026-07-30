@@ -42,9 +42,10 @@ async function replayReport(): Promise<EvalReport> {
 const keys = (json: string) => Object.keys(JSON.parse(json));
 
 describe('JSON schema', () => {
-  it('is version 2', () => {
-    // M4 added `gates` and `diff`, both additive, so 2 stands.
-    assert.equal(SCHEMA_VERSION, 2);
+  it('is version 3', () => {
+    // 3 took every multi-provider break at once, while nothing pinned 2:
+    // optional cache usage, the resolved model id, and required provenance.
+    assert.equal(SCHEMA_VERSION, 3);
   });
 
   it('freezes the inspect payload', async () => {
@@ -77,6 +78,10 @@ describe('JSON schema', () => {
       'command',
       'source',
       'model',
+      'provider',
+      'reasoning',
+      'toolSearch',
+      'regimeHash',
       'trials',
       'startedAt',
       'durationMs',
@@ -139,6 +144,10 @@ describe('JSON schema', () => {
       'command',
       'source',
       'model',
+      'provider',
+      'reasoning',
+      'toolSearch',
+      'regimeHash',
       'trials',
       'startedAt',
       'durationMs',

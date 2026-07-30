@@ -1,27 +1,38 @@
 # MCP Agent Evaluation Harness — Project Spec
 
-**Name:** `pickrate` — settled 25 July 2026, see [`skills-adapter-plan.md`](skills-adapter-plan.md) §11. (Was `mcpeval`; `toolcheck` and `manifest` also considered.)
-**Status:** M1–M3 implemented (`inspect`, `run`, `mutate`, both adapters). M4 in progress — see [`ci-plan.md`](ci-plan.md). Published to npm.
+**Working name:** TBD (`mcpeval`, `toolcheck`, `manifest` all plausible)
+**Status:** Draft v0.1 — pre-code
 **Date:** 25 July 2026
 
 ---
 
-## 0. Timing note — read this first
+## 0. Protocol note — read this first
 
-The MCP specification finalises on **28 July 2026**, three days from now. The current stable spec is `2025-11-25`; the new one is `2026-07-28`, and it is the largest revision since the protocol launched.
+**Updated 28 July 2026: the specification shipped as final today.** `2026-07-28` replaces `2025-11-25` as the current version. It is the largest revision since the protocol launched.
 
-This matters enormously for a project starting today:
+- The protocol is **stateless**. The `initialize`/`initialized` handshake and the `Mcp-Session-Id` header are gone (SEP-2575, SEP-2567). Every request carries its protocol version, client identity and client capabilities in `_meta`.
+- A new **`server/discover` RPC**, which servers MUST implement, advertises supported protocol versions, capabilities and identity. Clients MAY call it up front.
+- **`Mcp-Method` and `Mcp-Name` headers are required** on Streamable HTTP POSTs (SEP-2243), so gateways can route and meter without parsing the body.
+- **List results are cacheable** (SEP-2549): `tools/list`, `prompts/list`, `resources/list`, `resources/read` and `resources/templates/list` now carry `ttlMs` and `cacheScope`, with deterministic ordering, so clients can cache tool catalogues and keep upstream prompt caches stable across reconnects.
+- **MRTR** (SEP-2322) replaces server-initiated elicitation/sampling. Every result now carries a required `resultType` — `complete` or `input_required`. *This field landed between the RC and the final text; it was not in the May research.*
+- **Extensions framework** is formal, with MCP Apps, Tasks and Enterprise Managed Authorization as the named extensions. Tasks moved out of core.
+- `Roots`, `Sampling`, `Logging` and the legacy HTTP+SSE transport are **deprecated, not removed** — twelve-month minimum window under the new lifecycle policy (SEP-2577, SEP-2596).
 
-- The protocol becomes **stateless**. No `initialize`/`initialized` handshake, no `Mcp-Session-Id`, any request can hit any server instance.
-- New routing headers `Mcp-Method` and `Mcp-Name` let load balancers route without parsing the JSON-RPC body.
-- Caching metadata (`ttlMs`, `cacheScope`) is standardised.
-- An **Extensions framework** lands, with MCP Apps and a redesigned Tasks extension as the first two.
-- `Roots`, `Sampling` and `Logging` are deprecated (not removed — there's now a 12-month minimum deprecation window).
-- Tool `inputSchema`/`outputSchema` move to full JSON Schema 2020-12.
+### Correction to the earlier strategic claim
 
-**Strategic consequence:** every existing MCP testing tool was built against the stateful model and now has a migration on its hands. Building stateless-native from day one is both less work for you (no session lifecycle to implement) and a legitimate differentiator for roughly the next two quarters.
+The draft version of this section said building stateless-native was *less work* because there is no session lifecycle to implement. **That was wrong, and in a way that changes M1's scope.**
 
-Beta SDKs targeting the RC exist for Python, TypeScript, Go and C#.
+Publication is a publish date, not a switch-off. Servers on `2025-11-25` keep working and will for at least a year. The 20–30 well-known public servers that M5's leaderboard depends on are overwhelmingly still on the old revision today.
+
+**So the connector must speak both revisions**, using the probe pattern the SDKs have adopted: call `server/discover`, and fall back to the legacy `initialize` handshake when the server doesn't support it. Dual-protocol is not a nice-to-have — without it there is no leaderboard, and the leaderboard is the distribution event.
+
+The differentiator survives, but it is narrower and better stated: **every existing MCP testing tool now has a migration on its hands, and pickrate can be born dual-protocol rather than retrofitted.** That is a real advantage for roughly the next two quarters. It just costs a connector that handles two lifecycles instead of zero.
+
+All four Tier 1 SDKs (TypeScript, Python, Go, C#) speak `2026-07-28` as of today; Rust is in beta.
+
+**Checked against npm, 28 July 2026 — the TypeScript SDK does not.** `@modelcontextprotocol/sdk@1.30.0` is `latest`, and it still declares `LATEST_PROTOCOL_VERSION = '2025-11-25'` with no `server/discover` and no routing headers. So the dual-protocol connector cannot be built on the SDK yet, and the choice is to hand-roll the stateless transport against a spec document with no server to verify it on, or to wait. **Waiting, for now.**
+
+One thing that does *not* have to wait: `ResultSchema` is a Zod loose object, so unknown keys survive parsing. `ttlMs` and `cacheScope` are readable through the current SDK the moment a server sends them, which is why §12.1's lints landed ahead of the transport.
 
 ---
 
@@ -139,7 +150,7 @@ They're different bugs with different fixes:
 Declarative first. A DSL can come later if anyone asks.
 
 ```yaml
-# pickrate.yaml
+# mcpeval.yaml
 server:
   transport: stdio
   command: node ./build/index.js
@@ -291,7 +302,7 @@ Sized for a few hours a week. Each milestone ships on its own.
 
 ### M1 — Analyser only (weekends 1–2)
 
-`pickrate inspect <server>` → connect, pull the manifest, print token cost and lint warnings.
+`mcpeval inspect <server>` → connect, pull the manifest, print token cost and lint warnings.
 
 **No API key, no model calls, no cost.** This is deliberate: the barrier to someone trying it is `npx` and nothing else. Most tools in this space ask for credentials before showing value. Not asking is a feature.
 
@@ -330,7 +341,7 @@ Multi-model comparison (does your server work on Claude but not GPT?), security 
 3. **Where do scenarios come from?** Hand-written for v1 — settled, and the mutation work in §6 is what makes generation safe to add later. When you do add it, generation drafts and a human accepts; reviewing thirty generated scenarios is twenty minutes against three hours to write them, and a human deciding what "correct" means is what breaks the circularity.
 4. **Do you score arguments strictly or semantically?** Strict by default, opt-in semantic — settled by §6, since strict matching keeps an LLM judge out of the primary metric entirely.
 5. **How many mutants before the score means anything?** Open. Too few and the mutation score is noise; too many and every run costs real money. Start at three operators × three tools and see what the variance looks like.
-6. **Name and licence.** ~~Open-core is the natural shape here — CLI open source, CI/hosted reporting paid.~~ **Settled 25 July 2026:** `pickrate` (reasoning in [`skills-adapter-plan.md`](skills-adapter-plan.md) §11.3), MIT, published to npm and public at `lach1an/pickrate`. Open-core remains the intended shape: the CLI is the free artifact, and hosted history is where §6's baseline persistence would attach later (see [`ci-plan.md`](ci-plan.md) §1.5).
+6. **Name and licence.** Open-core is the natural shape here — CLI open source, CI/hosted reporting paid.
 
 ---
 
@@ -413,3 +424,53 @@ Closer to this project than anything in the MCP space. Two distinctions to prese
 7. **Does the mutation score mean the same thing across adapters?** Blanking a skill description and blanking a tool description are similar operations but the baselines differ. Probably needs per-adapter normalisation before the numbers are comparable.
 8. **Do you score skill bodies at all, or only routing?** Routing only is the disciplined answer and keeps scope tight. Body quality is a much larger, mushier problem.
 9. **Is "45% never trigger" reproducible on public corpora?** If yes, that's the launch post. Worth checking cheaply and early, since it needs no runner — just an analyser and a scenario set.
+
+---
+
+## 12. Update — 28 July 2026: what the shipped spec adds
+
+Beyond the connector correction in §0, the final text creates **new lintable surface that did not exist yesterday and that nothing currently checks.** All of it is static, offline, no API key — which puts it squarely in M1.
+
+### 12.1 Cache metadata is the significant one
+
+`tools/list` results now carry `ttlMs` (freshness hint, milliseconds) and `cacheScope` (`public` or `private`), modelled on HTTP `Cache-Control`. The stated purpose is that clients can cache tool catalogues **and keep upstream prompt caches stable across reconnects**.
+
+That last clause connects directly to §11.3 of this spec — the prefix-cache cost identified for skills. The same property now exists in MCP and is now *declarable*, which means it is now *checkable*:
+
+| Check | Failure it catches |
+|---|---|
+| `ttlMs` present and non-trivial | Absent or near-zero forces re-fetch of the catalogue on every call — token cost plus prompt-cache invalidation on every reconnect |
+| `cacheScope` present | Undeclared scope means conservative clients won't cache at all |
+| `cacheScope: public` on a tenant-varying catalogue | **Security lint.** A shared intermediary may cache and serve one tenant's tool catalogue to another |
+| Ordering deterministic across repeated `tools/list` calls | Nondeterministic order breaks every downstream prompt cache on every reconnect, invisibly, at real cost |
+
+The ordering check is the good one. It is trivial to implement — call `tools/list` twice, compare — it costs nothing, it is invisible to every existing tool, and the failure it catches is expensive and silent. It is also a *very* clean demo of what the analyser is for.
+
+### 12.2 `server/discover` is a new free information source
+
+Servers MUST implement it, and it returns supported protocol versions, capabilities and identity before any tool call. For the analyser that means protocol generation, capability set and declared extensions are all available at zero cost, and can be cross-checked against what the server actually does.
+
+Obvious lint: capabilities declared in `server/discover` that the server does not honour in practice.
+
+### 12.3 `resultType` and MRTR
+
+New required field on every result: `complete` or `input_required`. A `tools/call` can now return `input_required` with `inputRequests` and an opaque `requestState`, expecting the client to re-issue with `inputResponses`.
+
+pickrate measures selection rather than execution, so this is mostly out of scope — but two things follow:
+
+1. The connector must not treat `input_required` as a malformed result. Handle it explicitly even if the harness only records that it happened.
+2. **A tool that demands mid-call elicitation is a distinct behaviour that current scoring does not model.** Not a v1 problem, but worth noting that "selected correctly" and "completed without further input" are separable outcomes now.
+
+### 12.4 Not v1
+
+- **MCP Apps** — tools declare UI templates ahead of time, which is more manifest surface and eventually more to lint. Later.
+- **Tasks** — a tool returning a task handle is a different completion shape. Later.
+- **`x-mcp-header`** — custom headers derived from tool parameters (SEP-2243). A security surface worth a look when the security work lands, not now.
+
+### 12.5 Net effect on the build order
+
+M1 **gains** the checks in 12.1 and 12.2 — cheap, static, and nobody else is doing them because the spec is hours old.
+
+M1 also **grows** by the dual-protocol connector from §0, which is the larger cost. Roughly: one extra weekend, offset by the analyser additions being the strongest free-tier material the project has had so far.
+
+The ordering-determinism check is the one I would build first. It is a handful of lines, it needs no key, and "your server returns tools in a different order each call, which breaks your users' prompt caches" is exactly the kind of specific, actionable, previously-invisible finding that makes people try a tool.
