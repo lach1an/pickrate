@@ -58,14 +58,10 @@ export async function runEval(
   const startedAt = new Date();
   const started = performance.now();
 
-  // Presented once, not per trial. Presentation is pure and cheap, but doing
-  // it once makes the byte-stability the cache depends on structural rather
-  // than something every adapter has to remember.
+  // Presented once, not per trial, so the cache's byte-stability is structural.
   const presentation = options.presentation ?? adapterFor(surface.kind).present(surface);
 
-  // How the adapter put the surface to the model decides how its answers are
-  // read back, so the projection travels with the presentation rather than
-  // being configured separately. An explicit override still wins.
+  // Projection travels with the presentation rather than being configured separately.
   const score: ScoreOptions = {
     ...options.score,
     project: options.score?.project ?? ((calls) => presentation.project(calls)),
@@ -85,9 +81,7 @@ export async function runEval(
 
   const results: TrialResult[] = [];
 
-  // Warm-up: one trial alone, so the manifest lands in the cache before the
-  // rest go out in parallel. Skipping it when it was needed makes a run roughly
-  // 10× dearer; doing it when it was not costs one round trip for nothing.
+  // One trial alone, so the manifest lands in cache before the rest fan out in parallel.
   const warmed = shouldWarm(provider, options.estimate);
   const first = warmed ? jobs[0] : undefined;
   if (first) {
@@ -111,8 +105,7 @@ export async function runEval(
   for (const scenario of config.scenarios) trialsByScenario.set(scenario.id, []);
   for (const trial of results) trialsByScenario.get(trial.scenarioId)?.push(trial);
 
-  // Read after everything has resolved, so there is no race: the model id the
-  // API reported, which is what actually ran, rather than the alias asked for.
+  // Read after everything resolves: the model id the API reported, not the alias asked for.
   const model = provider.resolvedModel ?? provider.model;
   const regime = provider.regime(presentation);
 
@@ -130,8 +123,7 @@ export async function runEval(
   );
 
   const usage = totalUsage(trialsByScenario);
-  // Priced per trial and summed, never off the total: a long-context meter is a
-  // property of one request, and a run's summed input clears any threshold.
+  // Priced per trial and summed, never off the total — a long-context meter reads per request.
   const costUsd = costOfTrials(model, results.map((trial) => trial.usage));
 
   return {

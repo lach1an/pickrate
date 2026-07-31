@@ -90,27 +90,18 @@ export class OpenAIProvider implements Provider {
   }
 
   /**
-   * The client, built on first use rather than in the constructor.
-   *
-   * Unlike the Anthropic SDK, this one throws from its constructor when it
-   * cannot find a key. Building it eagerly would mean `providerFor()` — pure
-   * routing that reads nothing and calls nothing — throws on a machine with no
-   * OpenAI key, so the registry could not be tested offline and a model-id typo
-   * would surface as a credentials error. It also throws a message that says
-   * nothing about pickrate, which is what `CredentialError` exists to fix.
+   * Built on first use, not in the constructor: the OpenAI SDK throws from its
+   * constructor when it can't find a key, which would make `providerFor()`
+   * throw on a machine with no OpenAI key.
    */
   private get client(): OpenAI {
     if (this.cachedClient !== undefined) return this.cachedClient;
 
     try {
       this.cachedClient = new OpenAI({
-        // Zero-arg by default: picks up OPENAI_API_KEY. Never prompt for a key,
-        // and never accept one as a CLI argument — an argument lands in the
-        // command trace.
+        // Zero-arg picks up OPENAI_API_KEY; never accept one as a CLI argument (command trace).
         ...(this.options.apiKey !== undefined ? { apiKey: this.options.apiKey } : {}),
-        // Retries here cover transport only — 429/5xx/connection. A "wrong" tool
-        // choice is a result, not a failure, and is never retried: doing so
-        // would silently bias every pass rate upward.
+        // Transport retries only (429/5xx/connection) — a "wrong" tool choice is never retried.
         maxRetries: this.options.maxRetries ?? 4,
         timeout: this.options.timeoutMs ?? 60_000,
       });
@@ -127,10 +118,7 @@ export class OpenAIProvider implements Provider {
 
   capabilitiesFor(model: string): ModelCapabilities {
     return capabilitiesOf(model, {
-      // Unknown model: assume this vendor's current shape. Note this is not the
-      // same bet as the Anthropic fallback — `automatic-prefix` means the runner
-      // *skips* the warm-up, which is right here, because there is no write to
-      // serialise against and warming would buy a round trip and no guarantee.
+      // Unknown model: assume the vendor's current shape (automatic-prefix, no warm-up).
       cache: FALLBACK_CACHE,
       toolSearch: 'supported',
       reasoning: 'effort-scale',
@@ -142,10 +130,8 @@ export class OpenAIProvider implements Provider {
       provider: this.id,
       reasoning: REASONING,
       toolSearch: TOOL_SEARCH,
-      // Note what is *absent*: the tool declarations and `presentation.
-      // systemSuffix`, both of which are derived from the surface. Hashing them
-      // would give every mutant its own regime and make a mutation session
-      // incomparable with the baseline it is measured against.
+      // Excludes tool declarations and systemSuffix (derived from the surface) —
+      // hashing them would give every mutant its own regime.
       hash: regimeHash({
         provider: this.id,
         declarations: DECLARATION_FORM,
@@ -167,9 +153,7 @@ export class OpenAIProvider implements Provider {
 
       return trialFrom(response, scenario.id, this.cacheOf(response.model));
     } catch (error) {
-      // Credentials and quota are not per-trial conditions — every remaining
-      // trial would fail identically. Stop the run instead of burning through N
-      // of them and reporting what looks like a manifest problem.
+      // Not per-trial conditions — every remaining trial would fail identically.
       throwIfCredentialProblem(error);
       return {
         scenarioId: scenario.id,
@@ -192,9 +176,8 @@ export class OpenAIProvider implements Provider {
       scenarios[0]!,
     );
 
-    // The counting endpoint takes the same payload as `responses.create`,
-    // including tools, and returns the exact count the model will receive — so
-    // unlike `inspect`'s offline number this is authoritative, not an estimate.
+    // Takes the same payload as responses.create and returns the exact count
+    // the model will receive — authoritative, unlike inspect's offline number.
     const counted = await this.client.responses.inputTokens
       .count({ model: this.model, ...promptShape(presentation, longest.prompt) })
       .catch((error: unknown) => {
@@ -231,38 +214,24 @@ export class OpenAIProvider implements Provider {
     return {
       model: this.model,
       max_output_tokens: MAX_OUTPUT_TOKENS,
-      // `auto` is mandatory. A forced tool_choice makes restraint scenarios
-      // (expect.tool: null) impossible to express — the model could never
-      // correctly decline to call anything.
+      // Mandatory: a forced tool_choice makes restraint scenarios (expect.tool: null) impossible.
       tool_choice: 'auto',
-      // Trials must be independent. Responses stores generated responses by
-      // default for later retrieval; that is a copy of every prompt sitting on
-      // the vendor's side for a harness that measures other people's manifests,
-      // and it is one more piece of shared state between trials that are
-      // supposed to be unrelated draws.
+      // Responses stores generated responses by default — trials must stay independent.
       store: false,
-      // Only when the model has the parameter: sending `reasoning` to a tier
-      // without it is a 400. Driven from the table so a new tier is a data edit.
+      // Only when the model has the parameter: sending `reasoning` to a tier without it is a 400.
       ...(reasons === 'effort-scale' ? { reasoning: { effort: EFFORT } } : {}),
-      // `parallel_tool_calls` is deliberately left at its default. Over-calling
-      // is the behaviour under observation — setting it false is a hard gate
-      // that guarantees zero or one call, which would censor the failure mode
-      // the selection metric exists to catch.
+      // Left at its default — over-calling is the failure mode under observation.
       ...promptShape(presentation, prompt),
     };
   }
 
   async close(): Promise<void> {
-    // Nothing to release: the SDK holds no persistent connection.
+    // Nothing to release: no persistent connection.
   }
 }
 
-/**
- * The provider's standard cache shape, for a model with no table entry.
- *
- * `writesBilled` true is the pessimistic reading, and pessimistic is the right
- * default for anything that feeds a price.
- */
+// Standard cache shape for a model with no table entry. writesBilled: true is
+// the pessimistic (and correct default) reading.
 const FALLBACK_CACHE: CacheBehaviour = {
   population: 'automatic-prefix',
   writesBilled: true,
@@ -271,26 +240,19 @@ const FALLBACK_CACHE: CacheBehaviour = {
   minimumPrefixTokens: 1024,
 };
 
-/**
- * One response → one trial. Pure, and exported so the guards below can be
- * driven from a test without a client, a key or a network.
- */
+// One response → one trial. Pure, so it's testable without a client, key, or network.
 export function trialFrom(
   response: OpenAI.Responses.Response,
   scenarioId: string,
   cache: CacheBehaviour,
 ): TrialResult {
   const usage = usageOf(response.usage, cache);
-  // The most specific fact available: the incomplete reason where there is one,
-  // otherwise the status. Unlike Anthropic's `stop_reason` this is not a
-  // statement about *why the model stopped*, which is why it is never scored on.
+  // Incomplete reason where there is one, otherwise status — never scored on,
+  // unlike Anthropic's stop_reason.
   const stopReason = response.incomplete_details?.reason ?? response.status ?? null;
 
-  // Every guard runs before the output is read: none of these responses has a
-  // usable call list, and treating any of them as "called nothing" scores as
-  // passing restraint — a false pass in the most neglected metric. They stay
-  // separate branches despite the identical shape, because they are different
-  // facts and the message must say which.
+  // Checked before the output is read — otherwise either reads as false restraint.
+  // Kept as separate branches: these are different facts.
   if (response.status === 'incomplete' && response.incomplete_details?.reason === 'max_output_tokens') {
     return {
       scenarioId,
@@ -369,9 +331,7 @@ function throwIfCredentialProblem(error: unknown): void {
   ) {
     throw new CredentialError(error.message, PROVIDER_ID, ENV_VAR);
   }
-  // An unfunded account is a 429 that is not a rate limit, and the SDK will have
-  // already exhausted its retries on it before we see it. Retrying the rest of
-  // the run cannot help, and reporting it per-trial would read as a bad manifest.
+  // An unfunded account is a 429 that isn't a rate limit — retrying the run can't help.
   if (error instanceof OpenAI.RateLimitError && /quota|billing|credit/i.test(error.message)) {
     throw new CredentialError(error.message, PROVIDER_ID, ENV_VAR);
   }
@@ -380,14 +340,8 @@ function throwIfCredentialProblem(error: unknown): void {
   }
 }
 
-/**
- * Neutral declaration → Responses function tool.
- *
- * Note `strict: false`, for the same reason the Anthropic side omits it: strict
- * mode rejects JSON Schema constructs that are common in real manifests and
- * constrains generation. We want to observe what the model does with the
- * server's schema as written, not with a version the API was willing to enforce.
- */
+// strict: false — we want to observe the model against the server's schema as
+// written, not a version the API rewrote to enforce.
 function toOpenAITool(tool: ToolDeclaration): OpenAI.Responses.FunctionTool {
   return {
     type: 'function',
@@ -408,15 +362,9 @@ function callsOf(output: OpenAI.Responses.ResponseOutputItem[]): ToolCall[] {
   return calls;
 }
 
-/**
- * Arguments arrive as a JSON *string* here, not a parsed object as on the other
- * provider, so they can fail to parse.
- *
- * An unparseable payload is recorded as an empty argument object rather than
- * discarded: the model did select this tool, and selection and arguments are
- * scored separately. Dropping the call would turn an argument bug into a
- * selection bug — or, on a restraint scenario, into a false pass.
- */
+// Unparseable arguments become an empty object, not a dropped call — the model
+// did select this tool, and dropping the call would turn an argument bug into
+// a selection bug (or a false pass on restraint).
 function parseArgs(raw: string): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(raw);

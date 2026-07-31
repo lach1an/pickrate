@@ -25,9 +25,7 @@ export function formatGates(results: GateResult[]): string | undefined {
     lines.push(`    ${mark} ${result.id.padEnd(width)}  ${paint(result.message)}`);
   }
 
-  // "Could not measure" and "measured, and it is bad" are different facts and
-  // they exit differently. Say which one happened rather than making the reader
-  // infer it from a colour.
+  // "Could not measure" and "measured, and it is bad" exit differently — say which.
   if (results.some((result) => !result.passed && result.unmeasured === true)) {
     lines.push(
       pc.dim('    Unmeasured: too little of this run completed for the numbers above to mean'),

@@ -32,8 +32,7 @@ export function countSurfaceTokens(surface: Surface): TokenReport {
   return {
     total,
     perItem: perItem.map((t) => ({ ...t, share: total === 0 ? 0 : t.tokens / total })),
-    // Reported for skills even when zero: "your bodies cost nothing extra" and
-    // "we did not measure your bodies" are different statements.
+    // Reported for skills even at zero — "costs nothing" and "wasn't measured" differ.
     ...(surface.kind === 'skills' ? { deferred: bodies } : {}),
     encoding: ENCODING,
     approximate: true,

@@ -42,9 +42,7 @@ export const tokenBudget: Rule = {
   id: 'token-budget',
   description: 'The whole surface is injected into context on every single call.',
   defaultSeverity: 'warn',
-  // Resident cost is the same problem in both worlds: an MCP manifest and a
-  // skills listing are both paid for on every request, whether or not anything
-  // is selected. For skills this counts routing descriptions only.
+  // Resident cost applies to both worlds; for skills this counts routing descriptions only.
   appliesTo: ['mcp', 'skills'],
   run(surface) {
     const findings: Finding[] = [];

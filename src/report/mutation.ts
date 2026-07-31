@@ -29,8 +29,7 @@ export function formatMutationReport(report: MutationReport): string {
       ),
   );
   if (report.baseline.observedNoise === 0) {
-    // Two runs that agree exactly usually mean a deterministic provider, not a
-    // stable server. Worth saying, because the floor is doing all the work.
+    // Exact agreement usually means a deterministic provider, not a stable server.
     out.push(
       pc.dim(`            the two clean runs agreed exactly — the floor is holding the bar up`),
     );

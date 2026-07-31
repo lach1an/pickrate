@@ -216,9 +216,7 @@ async function inspect(
 ): Promise<ExitCode> {
   const format = parseFormat(values);
 
-  // One config drives all three commands, so the Action needs a single input:
-  // `inspect --config pickrate.yaml` takes both the target and the gates from
-  // the file that the scenarios already live in.
+  // `inspect --config pickrate.yaml` takes both target and gates from one file.
   const configPath = values.config as string | undefined;
   const config = configPath === undefined ? undefined : await loadConfig(configPath);
   const resolved = target ?? config?.target;
@@ -255,8 +253,7 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
     ? await ReplayProvider.fromFile(replay)
     : providerFor(providerChoice(config, values));
 
-  // The same presentation the runner will use, so the estimate prices the
-  // request that actually runs rather than an approximation of it.
+  // Same presentation the runner will use, so the estimate prices the actual request.
   const mode = (values.presentation as string | undefined) ?? config.defaults.presentation;
   const presentation = adapterFor(surface.kind).present(surface, mode !== undefined ? { mode } : {});
 
@@ -277,11 +274,7 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
 
   const render = json ? undefined : renderProgress();
 
-  // A live run is the expensive part of this whole tool, and the trials it
-  // produces are replayable offline forever. Recording them is therefore worth a
-  // flag on its own: without one, developing against a second provider means
-  // paying again for trials that were already bought once. `RunProgress` already
-  // carries every trial, so this collects rather than re-plumbing the runner.
+  // Recorded trials are replayable offline forever, so a live run is worth saving.
   const recordTo = values.record as string | undefined;
   const recorded: TrialResult[] = [];
   const onProgress =
@@ -294,9 +287,7 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
 
   const report = await runEval(config, surface, provider, {
     presentation,
-    // Passed so the runner can decide whether warming the cache is worth a
-    // serialised trial: below the model's minimum cacheable prefix there is no
-    // entry to warm, and the warm-up buys a round trip and nothing else.
+    // Lets the runner decide whether warming the cache is worth a serialised trial.
     ...(estimate ? { estimate } : {}),
     ...(onProgress ? { onProgress } : {}),
   });
@@ -318,8 +309,7 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
           ci.maxRegression !== undefined ? { maxRegression: ci.maxRegression } : {},
         );
 
-  // A run that could not measure anything must not look like a pass — which is
-  // the `max-error-rate` gate's whole job, and it is on by default.
+  // max-error-rate (on by default) stops an unmeasurable run from looking like a pass.
   const gates = evaluateRunGates(report, ci, diff);
 
   await emit(format, values, {
@@ -348,9 +338,8 @@ async function mutate(
   const format = parseFormat(values);
   const json = format === 'json';
 
-  // Replay is keyed on scenario id and knows nothing about the surface, so
-  // every mutant would replay identically and score exactly zero — a mutation
-  // score of 0% that reads like a devastating finding and is an artefact.
+  // Replay is keyed on scenario id, indifferent to the surface: every mutant
+  // would replay identically and score a fake 0%.
   if (values.replay !== undefined) {
     throw new Error(
       'mutate cannot use --replay: recorded trials are indifferent to the surface, so every mutant would ' +
@@ -422,47 +411,26 @@ interface Rendered {
   gates: GateResult[];
 }
 
-/**
- * Write the report: one rendering to stdout, and JSON to `--out` if asked.
- *
- * Both from the same run, deliberately. The Action wants a human artifact for
- * the step summary and a machine one for the artifact upload, and running the
- * eval twice to get two formats doubles the API bill for no new measurement.
- */
+// One rendering to stdout, and JSON to --out if asked — both from the same run,
+// so getting a human and a machine artifact never costs a second API bill.
 async function emit(format: Format, values: Values, rendered: Rendered): Promise<void> {
   const out = values.out as string | undefined;
 
   if (format === 'json') {
     process.stdout.write(`${rendered.json()}\n`);
   } else if (format === 'markdown') {
-    // Gates are already inside the markdown — a step summary is one document.
-    process.stdout.write(`${rendered.markdown()}\n`);
+    process.stdout.write(`${rendered.markdown()}\n`); // gates are already inside
   } else {
     const gates = formatGates(rendered.gates);
     process.stdout.write(gates === undefined ? `${rendered.table()}\n` : `${rendered.table()}\n${gates}\n\n`);
   }
 
-  // Always JSON, whatever went to stdout — a file named by `--out` that
-  // contained a terminal table would be a trap for the pipeline reading it.
+  // Always JSON regardless of stdout's format, so --out is safe for a pipeline to read.
   if (out !== undefined) await writeFile(out, `${rendered.json()}\n`, 'utf8');
 }
 
-/**
- * Gates from the config, with flags on top.
- *
- * The file is where a threshold belongs — it is argued over in review next to
- * the scenarios it judges. Flags exist so a workflow can tighten one without
- * editing the repo, not so it can hold the whole policy.
- */
-/**
- * Which provider and model to run, merging flags over config.
- *
- * `--provider` and `--model` are run-level flags and never config keys: a stored
- * config that silently switches provider changes what the numbers mean on an
- * invocation that looks identical to the one it was reviewed at. Model stays
- * readable from config because it was already, and the report records what
- * actually ran either way.
- */
+// --provider/--model are run-level flags, never config keys: a report always
+// records what actually ran, so a stored config can't silently switch providers.
 function providerChoice(config: EvalConfig, values: Values): ProviderChoice {
   const model = (values.model as string | undefined) ?? config.defaults.model;
   const provider = values.provider as string | undefined;
@@ -473,6 +441,8 @@ function providerChoice(config: EvalConfig, values: Values): ProviderChoice {
   };
 }
 
+// Gates belong in the config file, argued over next to the scenarios they judge;
+// flags let a workflow tighten one without editing the repo.
 function gatesFor(ci: CiGates | undefined, values: Values): CiGates {
   const failOn = values['fail-on'] as string | undefined;
 
@@ -531,9 +501,7 @@ async function preflight(
       `  ${pc.bold('model')}     ${estimate.model}\n` +
       pc.dim(`  manifest  ~${estimate.inputTokensPerTrial.toLocaleString()} input tokens per trial\n`) +
       pc.dim(`  trials    ${trials} across ${config.scenarios.length} scenarios\n`) +
-      // Each run is a different surface and so a different cached prefix. A
-      // mutation session is not one warm run, it is `runs` of them, and the
-      // estimate must not imply otherwise.
+      // Each run is a different surface, so a different cached prefix.
       (runs > 1 ? pc.dim(`  runs      ${runs}, each writing its own prompt cache\n`) : '') +
       `  ${pc.bold('estimate')}  ${cost}\n\n`,
   );
@@ -550,12 +518,7 @@ async function confirm(): Promise<boolean> {
   }
 }
 
-/**
- * Single-line progress on stderr, so `--json` on stdout stays clean.
- *
- * Only when stderr is a terminal: `\r` does nothing in a pipe or a log file,
- * where it would smear every update onto one unreadable line.
- */
+// Only on a stderr TTY: `\r` smears every update onto one line in a pipe or log file.
 function renderProgress() {
   if (!process.stderr.isTTY) return undefined;
   return ({ completed, total, scenario }: { completed: number; total: number; scenario: { id: string } }) => {

@@ -53,10 +53,8 @@ export interface PlanOptions {
 /**
  * Choose which defects to inject.
  *
- * Deterministic by construction: operators enumerate every mutant they could
- * produce in surface order, and this takes them round-robin. Same surface and
- * same options give the same plan, byte for byte, with no seed — which is
- * fortunate, because no provider in reach offers one.
+ * Deterministic by construction (round-robin over each operator's enumeration
+ * in surface order), since no provider in reach offers a seed.
  *
  * Round-robin rather than in order, so a small budget is not spent entirely on
  * the first operator. Three mutants that are all `blank-description` would
@@ -67,8 +65,7 @@ export function planMutants(surface: Surface, options: PlanOptions = {}): Mutant
   const limit = options.limit ?? DEFAULT_MUTANTS;
 
   const queues = chosen
-    // Skipped, not run to produce nothing: an operator with nothing to say
-    // about this surface must not count against the mutation score.
+    // Skipped rather than run to produce nothing, so it doesn't count against the score.
     .filter((operator) => operator.appliesTo.includes(surface.kind))
     .map((operator) => operator.enumerate(surface));
 
@@ -199,8 +196,7 @@ export function scoreMutation(input: ScoreMutationInput): MutationReport {
   const first = input.baselineRuns[0]!;
   const everyReport = [...input.baselineRuns, ...records.map((record) => record.report)];
   const usage = sumUsage(everyReport.map((report) => report.usage));
-  // Summed from each run's own figure rather than re-priced off the total: a
-  // long-context meter reads per request, and one run's cost is already right.
+  // Summed from each run's own figure — a long-context meter reads per request.
   const costUsd = everyReport.some((report) => report.costUsd === undefined)
     ? undefined
     : everyReport.reduce((sum, report) => sum + (report.costUsd ?? 0), 0);
@@ -217,8 +213,7 @@ export function scoreMutation(input: ScoreMutationInput): MutationReport {
     trials: input.trials,
     baseline,
     mutants: records,
-    // An empty plan scores zero, not one. "We injected nothing and detected all
-    // of it" is the most flattering possible reading of having done no work.
+    // An empty plan scores zero, not one — no injected mutants shouldn't read as "all detected".
     mutationScore: records.length === 0 ? 0 : records.filter((r) => r.killed).length / records.length,
     usage,
     ...(costUsd !== undefined ? { costUsd } : {}),
@@ -247,15 +242,8 @@ export interface RunMutationOptions {
   mode?: string;
 }
 
-/**
- * Measure the clean surface twice, then once per mutant.
- *
- * Every run goes through `runEval` unchanged, so warm-then-fan-out, bounded
- * concurrency and never-retry-a-result all apply per run without being
- * restated here. Each mutant is presented separately: a mutant surface is a
- * different prefix, so it pays its own cache write and then reads — correct,
- * but it means a mutation session is not one cached run, it is `2 + n` of them.
- */
+// Measures the clean surface twice, then once per mutant, each via `runEval`
+// unchanged. Each mutant is a different prefix, so it pays its own cache write.
 export async function runMutation(
   config: EvalConfig,
   surface: Surface,
@@ -283,9 +271,7 @@ export async function runMutation(
 
   const baselineRuns: EvalReport[] = [];
   for (let i = 0; i < BASELINE_RUNS; i++) {
-    // Sequential, and on the *same* surface: the two runs are a variance
-    // measurement, and anything that made them differ structurally would put
-    // that difference straight into the noise floor.
+    // Sequential, on the same surface: these two runs are a variance measurement.
     baselineRuns.push(await report(`baseline ${i + 1}`, i, surface));
   }
 

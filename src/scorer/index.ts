@@ -79,8 +79,7 @@ export function scoreScenario(
       continue;
     }
 
-    // Projected once, here. `trial.calls` stays the raw transcript — the
-    // fixture on disk is what the model actually did, not what we made of it.
+    // Projected once, here — trial.calls stays the raw transcript on disk.
     const calls = project(trial.calls);
 
     const selected = selectionOf(calls, expected);
@@ -104,9 +103,7 @@ export function scoreScenario(
     }
   }
 
-  // Errored trials are excluded from the denominator rather than counted as
-  // failures: a flaky network would otherwise read as a bad manifest. They are
-  // surfaced separately so a run with many of them isn't quietly trusted.
+  // Excluded from the denominator rather than counted as failures, and surfaced separately.
   const scored = trials.length - errors;
   const score = scored === 0 ? 0 : fullyCorrect / scored;
 
@@ -151,9 +148,7 @@ export function scoreRun(input: ScoreRunInput, options: ScoreOptions = {}): {
     ),
   );
 
-  // Projection is applied inside each consumer, exactly once. Projecting the
-  // map here instead and *also* passing the option down would apply it twice
-  // and quietly depend on it being idempotent.
+  // Projection is applied inside each consumer exactly once — not here too.
   return {
     scenarios,
     orphans: findOrphans(input.surface, input.trialsByScenario, options.project),

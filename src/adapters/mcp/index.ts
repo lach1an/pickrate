@@ -38,25 +38,13 @@ export const mcpAdapter: Adapter = {
           ...(tool.description !== undefined ? { description: tool.description } : {}),
           inputSchema: tool.inputSchema,
         }))
-        // Code-unit order, not `localeCompare`: collation varies with the
-        // host's ICU data and locale, and a prefix that sorts differently on
-        // CI than on a laptop is exactly the instability this is fixing.
+        // Code-unit order, not localeCompare: ICU collation varies by host and would
+        // make the cached prefix sort differently on CI than on a laptop.
         .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
     ),
 };
 
-/**
- * The one place that knows MCP exists.
- *
- * Everything downstream consumes `Surface`, and the `2026-07-28` transition
- * (stateless, no handshake, `Mcp-Method`/`Mcp-Name` routing headers) landed
- * here and nowhere else — which is what the seam was for.
- *
- * The SDK shipped that revision as a *new package line* rather than a new
- * version of the old one: `@modelcontextprotocol/client@2` speaks it, while
- * `@modelcontextprotocol/sdk@1.30.0` remains on `2025-11-25` and always will.
- * Watching the old name for a version bump would have waited forever.
- */
+// The one place that knows MCP exists — everything downstream consumes Surface.
 export async function loadManifest(
   target: string | Target,
   options: LoadOptions = {},
@@ -69,19 +57,8 @@ export async function loadManifest(
 
   const transport = createTransport(t, options);
 
-  // `mode: 'auto'` is the dual-protocol posture: `connect` probes with
-  // `server/discover` and falls back to the legacy `initialize` handshake for
-  // anything it does not positively recognise as modern. It replaces a
-  // hand-rolled probe that could only reach HTTP — under stdio the SDK owns the
-  // subprocess — and that read `protocolVersions` where the spec says
-  // `supportedVersions`, so it never once reported a version. The SDK also
-  // knows things that probe did not: the timeout verdict is transport-aware
-  // (silence on a local pipe is a legacy server; silence on a deployed server
-  // is an outage) and the spec's `-32022` corrective continuation is handled.
-  //
-  // The cost is one extra round trip on HTTP, or one extra short-lived server
-  // spawn on stdio, per load. No model spend either way, so `inspect` still
-  // needs no key.
+  // `mode: 'auto'`: probes with server/discover, falls back to the legacy
+  // initialize handshake for anything not positively recognised as modern.
   const client = new Client(CLIENT_INFO, {
     capabilities: {},
     versionNegotiation: { mode: 'auto' },
@@ -94,33 +71,22 @@ export async function loadManifest(
 
     const listTools = async (what: string): Promise<ToolDef[]> => {
       // One call walks every page: with no cursor, the v2 client aggregates the
-      // whole catalogue and preserves page-1 metadata on the result. That first
-      // page is what a client caching the catalogue would act on, and
-      // disagreement between pages is a server bug this analyser does not model.
+      // whole catalogue and preserves page-1 metadata on the result.
       //
-      // `cacheMode: 'bypass'` is load-bearing, not defensive. The v2 client
-      // caches the list verbs and *defaults* to serving a fresh entry with no
-      // round trip — which would answer the ordering re-list below from memory,
-      // compare it equal to the first, and report a stability nobody measured.
-      // It only misfires against servers sending `ttlMs`: `2026-07-28` servers,
-      // the only ones SEP-2549's ordering guarantee binds, and exactly the ones
-      // this is meant to police. A test fails if this option is removed.
+      // `cacheMode: 'bypass'` is load-bearing: the client otherwise serves the
+      // ordering re-list from its own cache, reporting a stability nobody measured.
       const options = { cacheMode: 'bypass' } as const;
       const result = await withTimeout(client.listTools({}, options), timeoutMs, what);
 
-      // `ResultSchema` is a loose object, so SEP-2549's keys survive parsing
-      // whether or not the schema names them.
+      // ResultSchema is a loose object, so SEP-2549's keys survive parsing unnamed.
       listCache = readListCache(result);
       return result.tools.map(normaliseTool);
     };
 
     const tools = await listTools('tools/list');
 
-    // Second listing, for the ordering check only. One extra round trip against
-    // a failure that is otherwise invisible until the invoice arrives is not a
-    // close call — and it costs no model spend, so `inspect` still needs no key.
-    // A re-list that throws leaves the answer *absent*, never `true`: "we did
-    // not find out" and "it was stable" are different facts (see SurfaceSource).
+    // Second listing, for the ordering check only. A re-list that throws leaves
+    // the answer absent, never true — "didn't find out" and "was stable" differ.
     const listOrderStable = await listTools('tools/list (ordering check)').then(
       (second) => sameOrder(tools, second),
       () => undefined,
@@ -128,8 +94,7 @@ export async function loadManifest(
 
     const serverInfo = client.getServerVersion();
     const protocolVersion = client.getNegotiatedProtocolVersion();
-    // Absent when the connection went legacy — the probe found nothing to
-    // report, which is not the same as a server that offered no versions.
+    // Absent on a legacy connection — different from a server offering no versions.
     const discoveredVersions = client.getDiscoverResult()?.supportedVersions;
 
     const source: SurfaceSource = {
@@ -215,22 +180,17 @@ export async function loadManifestFromFile(path: string): Promise<Surface> {
     );
   }
 
-  // A capture keeps whatever the server sent alongside its tools, so the
-  // cache lints are exercisable from a fixture with no server — the same
-  // contract every other rule already has.
+  // Keeps whatever the server sent alongside its tools, so cache lints run from a fixture.
   const result = Array.isArray(parsed)
     ? {}
     : ((parsed as { result?: Record<string, unknown> }).result ?? (parsed as Record<string, unknown>));
   const listCache = readListCache(result);
 
-  // A capture may also record which revision produced it. Without that the
-  // protocol-gated rules cannot run offline at all, and there would be no way
-  // to exercise them without a live server on a spec that has no SDK yet.
+  // Recorded revision, if any — without it, protocol-gated rules can't run offline.
   const declared = (parsed as { protocolVersion?: unknown }).protocolVersion ?? result['protocolVersion'];
   const protocolVersion = typeof declared === 'string' ? declared : undefined;
 
-  // Likewise whether the capture was taken against a credentialed endpoint —
-  // a flag, never a credential, so a capture can carry it into a repo safely.
+  // A flag, never a credential — safe for a capture to carry into a repo.
   const credentialed = (parsed as { credentialed?: unknown }).credentialed === true;
 
   return {

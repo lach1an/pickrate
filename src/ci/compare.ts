@@ -42,9 +42,7 @@ export function diffReports(
       baseline: previous.score,
       head: scenario.score,
       delta,
-      // Strictly past the floor. A drop of exactly one trial's worth is what
-      // the floor exists to absorb.
-      regressed: -delta > floor,
+      regressed: -delta > floor, // strictly past the floor, which absorbs one trial's worth
     };
   });
 

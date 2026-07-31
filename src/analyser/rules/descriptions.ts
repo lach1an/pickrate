@@ -51,9 +51,7 @@ export const nearDuplicateDescription: Rule = {
   id: 'near-duplicate-description',
   description: 'Items whose descriptions overlap heavily are the classic wrong-thing-selected failure.',
   defaultSeverity: 'warn',
-  // Reads only name and description, which every surface item has — so this
-  // one rule needs no narrowing and applies to skills unchanged. Near-duplicate
-  // routing descriptions are the most direct cause of a skill never triggering.
+  // Reads only name and description, which every surface item has — no narrowing needed.
   appliesTo: ['mcp', 'skills'],
   run(surface) {
     const findings: Finding[] = [];
