@@ -44,18 +44,13 @@ export const unstableListOrder: Rule = {
   id: 'unstable-list-order',
   description:
     'Two consecutive `tools/list` calls returned the same tools in a different order, which breaks the prompt cache behind them.',
-  // A cost failure rather than a correctness one — the manifest is fine and the
-  // model still selects correctly. It is a warning that happens to be expensive.
+  // A cost failure, not a correctness one — selection is unaffected.
   defaultSeverity: 'warn',
-  // Skills are read from a directory walk, which is ordered by construction.
+  // Skills are read from a directory walk, ordered by construction.
   appliesTo: ['mcp'],
   run(surface) {
-    // Absent means nobody checked — a file fixture, or a re-list that failed.
-    // Reporting that as a pass would claim a measurement that never happened.
-    //
-    // Deliberately *not* gated on the protocol revision, unlike the rules
-    // below: ordering is measured directly rather than read off a declaration,
-    // and a legacy server that reorders costs exactly as much as a new one.
+    // Absent means nobody checked (fixture, or a failed re-list) — not gated on
+    // protocol revision, since a legacy server that reorders costs just as much.
     if (surface.source.listOrderStable !== false) return [];
 
     return [
@@ -113,8 +108,7 @@ export const missingCacheTtl: Rule = {
 export const missingCacheScope: Rule = {
   id: 'missing-cache-scope',
   description: '`tools/list` declares no `cacheScope`, which conservative clients read as "do not cache".',
-  // Lower than the TTL rule: an undeclared scope costs caching, while a wrong
-  // one (below) leaks. Same field, two very different failures.
+  // Lower than the TTL rule: an undeclared scope costs caching, a wrong one (below) leaks.
   defaultSeverity: 'info',
   appliesTo: ['mcp'],
   run(surface) {
@@ -142,10 +136,7 @@ export const publicCacheScope: Rule = {
     if (!speaksCacheableLists(surface)) return [];
     if (surface.source.listCache?.cacheScope !== 'public') return [];
 
-    // The catalogue was fetched with credentials, so it may well differ per
-    // caller — and `public` invites a shared intermediary to hand one caller's
-    // tools to the next. Without credentials there is no tenant to confuse,
-    // and `public` is the correct declaration rather than a finding.
+    // Without credentials there is no tenant to confuse, so `public` is correct here.
     if (surface.source.credentialed !== true) return [];
 
     const findings: Finding[] = [
@@ -171,9 +162,7 @@ export const legacyProtocol: Rule = {
   run(surface) {
     if (speaksCacheableLists(surface)) return [];
 
-    // Only when we know. A capture that records no revision never negotiated
-    // one, and calling it legacy would put a claim in the report that nothing
-    // measured — the same absent-is-not-false discipline as `listOrderStable`.
+    // Only when we know: a capture with no recorded revision never negotiated one.
     const version = surface.source.protocolVersion;
     if (version === undefined) return [];
 

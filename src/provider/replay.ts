@@ -86,10 +86,8 @@ export class ReplayProvider implements Provider {
   }
 
   async runTrial(presentation: Presentation, scenario: Scenario): Promise<TrialResult> {
-    // Recorded calls only mean what they meant under the presentation that
-    // produced them: skill-tool trials replayed as pseudo-tool project through
-    // the identity and score a flat zero, which reads like a finding rather
-    // than a mistake.
+    // Recorded calls only mean what they meant under the presentation that produced
+    // them — replaying under a different mode would score a fake flat zero.
     if (
       this.recordedMode !== undefined &&
       presentation.mode !== undefined &&

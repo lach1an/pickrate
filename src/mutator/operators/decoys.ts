@@ -24,14 +24,11 @@ export const injectDecoys: Operator = {
     const mutant: Mutant = {
       id: 'inject-decoys',
       operator: 'inject-decoys',
-      // Nothing existing is damaged, so nothing existing is a target. An empty
-      // list is the honest answer and the report reads it as "surface-wide".
-      targets: [],
+      targets: [], // nothing existing is damaged; report reads this as "surface-wide"
       describe: `${DECOY_COUNT} irrelevant items added to a surface of ${surface.items.length}`,
       apply(base) {
         const next = cloneSurface(base);
-        // Appended, in corpus order, after the real items — so the listing and
-        // any enum built from this stay byte-stable across trials.
+        // Appended after the real items so the listing stays byte-stable across trials.
         next.items.push(...decoyItems(next.kind, next.items.map((item) => item.name)));
         return next;
       },

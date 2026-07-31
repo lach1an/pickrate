@@ -65,9 +65,7 @@ function skillsTarget(raw: string, { forced }: { forced: boolean }): Target {
     throw new Error(`No SKILL.md found in ${raw}, or in .claude/skills or skills/ beneath it.`);
   }
 
-  // Reached when someone points at a directory that holds no skills. Naming
-  // both possibilities beats a bare parse error: this is the first thing a new
-  // user hits, and which fix applies depends on what they meant.
+  // Names both possibilities rather than a bare parse error — this is the first thing a new user hits.
   throw new Error(
     `${raw} is a directory, but holds no SKILL.md (nor one in .claude/skills or skills/).\n` +
       `  For a skills target, point at the directory that holds them.\n` +

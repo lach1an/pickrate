@@ -15,26 +15,20 @@ const BAR_WIDTH = 16;
  */
 export function formatEvalReport(report: EvalReport, diff?: ReportDiff): string {
   const out: string[] = [''];
-  // "picked the right tool" is wrong on a skills run, and a report that uses
-  // the wrong noun reads like it measured the wrong thing.
+  // "tool" is wrong on a skills run — the noun must match what was measured.
   const noun = itemNoun({ kind: report.source.adapter });
 
   out.push(`${pc.bold('pickrate run')}  ${pc.dim(report.source.target)}`);
-  // The model under test is part of the result — never bury it.
   out.push(
     `  ${pc.bold('model')}     ${report.model}` +
       (report.requestedModel !== undefined ? pc.dim(`  (requested ${report.requestedModel})`) : ''),
   );
-  // The rest of the instrument, on one line beside the score. The unit of
-  // comparison is model + reasoning config + loading regime, and a reader who
-  // cannot see all three cannot tell two measurements apart.
+  // The unit of comparison is model + reasoning config + loading regime — all three, together.
   out.push(
     pc.dim(
       `  regime    ${report.provider}` +
         `, reasoning ${report.reasoning.mode === 'none' ? 'none' : (report.reasoning.effort ?? 'default')}` +
-        // "eager"/"deferred" rather than the provider's name for the feature:
-        // the regime is a property of the measurement, and a skills report that
-        // says "tool search" reads like it measured the wrong thing.
+        // "eager"/"deferred", not the provider's feature name — this is a property of the measurement.
         `, ${report.toolSearch === 'on' ? 'deferred' : 'eager'} loading  ${report.regimeHash}`,
     ),
   );
@@ -42,8 +36,7 @@ export function formatEvalReport(report: EvalReport, diff?: ReportDiff): string 
     out.push(pc.dim(`  server    ${report.source.serverInfo.name} ${report.source.serverInfo.version}`));
   }
   if (report.presentation !== undefined) {
-    // Above the numbers, because it qualifies them: the same skills under a
-    // different presentation are a different measurement, not a better one.
+    // Above the numbers because it qualifies them — a different presentation is a different measurement.
     out.push(pc.dim(`  surfaced  ${report.presentation}`));
   }
   out.push(
@@ -59,9 +52,7 @@ export function formatEvalReport(report: EvalReport, diff?: ReportDiff): string 
   out.push('');
 
   if (diff) {
-    // Above the confusion pairs and well above the summary: on a `--baseline`
-    // run this is what the reader came for. "This PR dropped selection from
-    // 94% to 71%" is the finding; the absolute score is context for it.
+    // Above the confusion pairs and the summary — on a --baseline run, this is the finding.
     out.push(formatDiff(diff, noun));
     out.push('');
   }
@@ -120,13 +111,8 @@ function formatScenarioTable(scenarios: ScenarioScore[], noun: string): string {
   return lines.join('\n');
 }
 
-/**
- * The baseline comparison.
- *
- * Every scenario that moved is listed, but only movement past the floor is
- * called a regression — and the floor is printed next to the verdict, because a
- * reader who cannot see the tolerance cannot tell a quiet run from a strict one.
- */
+// Every moved scenario is listed, but only movement past the floor counts as a
+// regression; the floor is printed next to the verdict.
 export function formatDiff(diff: ReportDiff, noun: string): string {
   const moved = diff.scenarios.filter((scenario) => Math.abs(scenario.delta) > 0);
   const lines = [
@@ -153,9 +139,6 @@ export function formatDiff(diff: ReportDiff, noun: string): string {
     lines.push(pc.dim(`    new orphan ${noun}: ${diff.newOrphans.join(', ')}`));
   }
 
-  // A single run per side cannot measure its own noise — `mutate` can, by
-  // running the clean surface twice. Say where an honest floor comes from
-  // rather than implying this one is it.
   lines.push(
     pc.dim(`    Drops under ${pct(diff.floor)} are inside the noise and are not counted.`),
     pc.dim('    One run per side cannot measure noise; mutate can, or raise trials.'),

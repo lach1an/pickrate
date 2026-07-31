@@ -57,9 +57,7 @@ export async function loadConfig(path: string): Promise<EvalConfig> {
 export function parseConfig(raw: unknown, path = 'pickrate.yaml'): EvalConfig {
   const root = object(raw, 'config');
 
-  // `target:` is the spelling that survives the MCP/skills split — a skills
-  // directory is not a server. `server:` stays accepted, unannounced: every
-  // config written against M2 uses it, and a rename is not worth a break.
+  // `server:` is a silent alias for `target:`, kept for configs written against M2.
   const block = root.target ?? root.server;
   const key = root.target !== undefined ? 'target' : 'server';
 
@@ -72,13 +70,8 @@ export function parseConfig(raw: unknown, path = 'pickrate.yaml'): EvalConfig {
   };
 }
 
-/**
- * Parse the `ci:` block.
- *
- * Unknown keys are an error rather than ignored: a misspelled `maxFlakey:` is
- * a gate the author believes is guarding them and which never fires, and the
- * only moment it becomes visible is the one where it was needed.
- */
+// Unknown keys are an error, not ignored — a misspelled `maxFlakey:` should fail
+// loudly rather than silently never fire.
 export function parseCi(raw: unknown): CiGates {
   if (raw === undefined) return { ...DEFAULT_GATES };
   const ci = object(raw, 'ci');
@@ -107,18 +100,13 @@ export function parseCi(raw: unknown): CiGates {
   };
 }
 
-/**
- * Collapse the target block into the single target string the adapters already
- * understand, so `run` and `inspect` reach a surface the same way.
- */
+// Collapses the target block into the single target string the adapters already understand.
 function parseTargetBlock(raw: unknown, key: string, configPath: string): string {
   const server = object(raw, key);
-  // `type` is the general word now that a target can be a directory of skills.
   const transport = server.type ?? server.transport;
 
   if (transport === 'skills') {
-    // Relative to the config file, like `file`: a checked-in fixture has to
-    // work from any working directory.
+    // Relative to the config file, so a checked-in fixture works from any working directory.
     return resolve(dirname(configPath), required(server.path, `${key}.path`, 'a directory path'));
   }
   if (transport === 'stdio') {
@@ -128,13 +116,11 @@ function parseTargetBlock(raw: unknown, key: string, configPath: string): string
     return required(server.url, `${key}.url`, 'a URL');
   }
   if (transport === 'file') {
-    // A captured tools/list response. Resolved relative to the config file so
-    // a checked-in fixture works from any working directory — this is what
-    // lets a whole eval run offline, and what M3's mutation runs will target.
+    // A captured tools/list response, resolved relative to the config file.
     return resolve(dirname(configPath), required(server.manifest, `${key}.manifest`, 'a file path'));
   }
   if (transport === undefined) {
-    // Tolerate the shorthand: whichever key is present implies the type.
+    // Shorthand: whichever key is present implies the type.
     if (typeof server.url === 'string') return server.url;
     if (typeof server.manifest === 'string') return resolve(dirname(configPath), server.manifest);
     if (typeof server.path === 'string') return resolve(dirname(configPath), server.path);
@@ -156,8 +142,7 @@ function parseDefaults(raw: unknown): EvalDefaults {
     threshold: threshold(defaults.threshold, 'defaults.threshold') ?? DEFAULTS.threshold,
     model: string(defaults.model, 'defaults.model') ?? DEFAULTS.model,
     concurrency: positiveInt(defaults.concurrency, 'defaults.concurrency') ?? DEFAULTS.concurrency,
-    // Not validated here: the set of modes belongs to the adapter, and this
-    // module must not learn the names of things only adapters know.
+    // Not validated here — the set of modes belongs to the adapter.
     ...(defaults.presentation !== undefined
       ? { presentation: required(defaults.presentation, 'defaults.presentation', 'a mode name') }
       : {}),
@@ -197,9 +182,7 @@ function parseScenarios(raw: unknown): Scenario[] {
 function parseExpectation(raw: unknown, path: string): Expectation {
   const expect = object(raw, path);
 
-  // `select:` is the general spelling — a skill is not a tool — with `tool:`
-  // kept as an alias so existing configs are untouched. Both mean the same
-  // field, and `null` means restraint under either.
+  // `tool:` is a kept alias for `select:` (a skill is not a tool); both mean the same field.
   const key = 'select' in expect ? 'select' : 'tool';
 
   if (!('select' in expect) && !('tool' in expect)) {

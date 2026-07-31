@@ -73,12 +73,9 @@ export class AnthropicProvider implements Provider {
     this.model = options.model ?? DEFAULT_MODEL;
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.client = new Anthropic({
-      // Zero-arg by default: picks up ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN,
-      // or an `ant auth login` profile. Never prompt the user for a key.
+      // Zero-arg picks up ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/`ant auth login`; never prompt.
       ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
-      // Retries here cover transport only — 429/5xx/connection. A "wrong" tool
-      // choice is a result, not a failure, and is never retried: doing so
-      // would silently bias every pass rate upward.
+      // Transport retries only (429/5xx/connection) — a "wrong" tool choice is never retried.
       maxRetries: options.maxRetries ?? 4,
       timeout: this.timeoutMs,
     });
@@ -86,9 +83,7 @@ export class AnthropicProvider implements Provider {
 
   capabilitiesFor(model: string): ModelCapabilities {
     return capabilitiesOf(model, {
-      // Unknown model: assume this vendor's standard shape rather than "no
-      // cache". Warming when we needn't costs one serialised trial; not warming
-      // when we should costs roughly 10× the run.
+      // Unknown model: assume the vendor's standard shape rather than "no cache".
       cache: {
         population: 'explicit-breakpoint',
         writesBilled: true,
@@ -105,10 +100,8 @@ export class AnthropicProvider implements Provider {
       provider: this.id,
       reasoning: REASONING,
       toolSearch: TOOL_SEARCH,
-      // Note what is *absent*: the tool declarations and `presentation.
-      // systemSuffix`, both of which are derived from the surface. Hashing them
-      // would give every mutant its own regime and make a mutation session
-      // incomparable with the baseline it is measured against.
+      // Excludes tool declarations and systemSuffix (derived from the surface) —
+      // hashing them would give every mutant its own regime.
       hash: regimeHash({
         provider: this.id,
         declarations: DECLARATION_FORM,
@@ -130,9 +123,7 @@ export class AnthropicProvider implements Provider {
 
       return trialFrom(response, scenario.id);
     } catch (error) {
-      // Missing or bad credentials are not a per-trial condition — every
-      // remaining trial would fail identically. Stop the run instead of
-      // burning through N of them and reporting a manifest problem.
+      // Not a per-trial condition — every remaining trial would fail identically.
       throwIfCredentialProblem(error);
       return {
         scenarioId: scenario.id,
@@ -181,36 +172,24 @@ export class AnthropicProvider implements Provider {
   ): Anthropic.MessageCreateParamsNonStreaming {
     return {
       model: this.model,
-      // Budgeted generously on purpose. Capping output is not available as a
-      // cost control: a cap tight enough to bound spend is a cap that
-      // truncates, and a truncated trial is a discarded trial. The errored-trial
-      // rate is what says a run is unmeasurable.
+      // Budgeted generously — a cap tight enough to bound spend is a cap that truncates.
       max_tokens: 1024,
-      // `auto` is mandatory. A forced tool_choice makes restraint scenarios
-      // (expect.tool: null) impossible to express — the model could never
-      // correctly decline to call anything.
+      // Mandatory: a forced tool_choice makes restraint scenarios (expect.tool: null) impossible.
       tool_choice: { type: 'auto' },
-      // effort, not thinking:disabled. Disabling thinking on some models makes
-      // the model occasionally write a tool call into visible text instead of
-      // emitting a tool_use block — which this harness would silently score as
-      // "selected nothing". That is a systematic error in the primary metric.
+      // effort, not thinking:disabled — disabling thinking can make tool calls arrive
+      // as visible text instead of tool_use blocks, which would score as false restraint.
       output_config: { effort: EFFORT },
       ...promptShape(presentation, prompt),
     };
   }
 }
 
-/**
- * One response → one trial. Pure, and exported so the guards below can be
- * driven from a test without a client, a key or a network.
- */
+// One response → one trial. Pure, so it's testable without a client, key, or network.
 export function trialFrom(response: Anthropic.Message, scenarioId: string): TrialResult {
   const usage = usageOf(response.usage);
 
-  // Both guards run before the content is read: neither kind of response has a
-  // usable call list, and treating either as "called nothing" scores as passing
-  // restraint. They stay separate branches despite the identical shape —
-  // refusal and truncation are different facts, and the message must say which.
+  // Checked before the content is read — otherwise either reads as false restraint.
+  // Kept as separate branches: refusal and truncation are different facts.
   if (response.stop_reason === 'refusal') {
     return {
       scenarioId,
@@ -241,12 +220,8 @@ export function trialFrom(response: Anthropic.Message, scenarioId: string): Tria
   };
 }
 
-/**
- * The part of the request that is billed and cached: tools, system, messages.
- *
- * Shared by `messages.create` and `countTokens` so the preflight estimate
- * prices the request that actually runs, rather than an approximation of it.
- */
+// Billed/cached part of the request, shared by messages.create and countTokens
+// so the preflight estimate prices the actual request.
 function promptShape(
   presentation: Presentation,
   prompt: string,
@@ -257,13 +232,9 @@ function promptShape(
 } {
   return {
     tools: presentation.tools.map(toAnthropicTool),
-    // The breakpoint goes on system, which renders after tools, so it caches
-    // the surface and the system prompt together. Without it, a 34k-token
-    // manifest is re-billed at full price on every single trial.
-    //
-    // The adapter's suffix goes inside that same cached block — which is why
-    // it has to be byte-stable across trials. A skills listing that iterated a
-    // Set, or interpolated a path, would silently make every trial a cache miss.
+    // Breakpoint on system (renders after tools) caches the whole prefix together.
+    // The adapter's suffix sits inside that block, so it must be byte-stable across
+    // trials — a Set iteration or interpolated path would silently miss the cache.
     system: [
       {
         type: 'text',
@@ -279,7 +250,7 @@ function throwIfCredentialProblem(error: unknown): void {
   if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) {
     throw new CredentialError(error.message, PROVIDER_ID, ENV_VAR);
   }
-  // Thrown before any request when the SDK cannot resolve a credential source.
+  // Thrown before any request if the SDK can't resolve a credential source.
   if (error instanceof Error && /resolve authentication method/i.test(error.message)) {
     throw new CredentialError('No Anthropic credentials found.', PROVIDER_ID, ENV_VAR);
   }

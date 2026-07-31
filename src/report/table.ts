@@ -31,8 +31,6 @@ export function formatAnalysis(analysis: Analysis): string {
     pc.dim(`  context   ~${tokens.total.toLocaleString()} tokens per session (${tokens.encoding}, approximate)`),
   );
   if (tokens.deferred !== undefined) {
-    // Deliberately below the resident figure and labelled with its condition.
-    // This number is large and harmless; the one above it is small and is not.
     out.push(pc.dim(`  bodies    ~${tokens.deferred.toLocaleString()} tokens, paid only when a skill triggers`));
   }
   out.push('');
@@ -50,9 +48,7 @@ export function formatAnalysis(analysis: Analysis): string {
 function formatFindings(findings: Finding[]): string {
   if (findings.length === 0) return pc.green('  No findings. Looks clean.');
 
-  // Findings arrive sorted by severity, so a rule with both warnings and info
-  // findings would otherwise get two headings. Group by rule, ordered by the
-  // most severe finding each rule produced.
+  // Grouped by rule (ordered by most severe finding) so a rule doesn't get two headings.
   const byRule = new Map<string, Finding[]>();
   for (const finding of findings) {
     const group = byRule.get(finding.rule);

@@ -107,10 +107,8 @@ const OPENAI_LONG_CONTEXT: LongContextMeter = {
 };
 
 export const MODELS: Record<string, ModelSpec> = {
-  // The minimum cacheable prefix is *not* monotonic across generations — 512 on
-  // the newest models, 4096 on Haiku 4.5, which is this harness's default. A
-  // small manifest on the default model does not cache at all, which is exactly
-  // what the runner's conditional warm-up exists to notice.
+  // Minimum cacheable prefix is not monotonic across generations: 512 on the
+  // newest models, 4096 here (this harness's default).
   'claude-haiku-4-5': {
     provider: 'anthropic',
     input: 1,
@@ -120,10 +118,8 @@ export const MODELS: Record<string, ModelSpec> = {
     toolSearch: 'supported',
     contextWindow: 200_000,
   },
-  // Sonnet 5 is on introductory pricing ($2/$10) through 2026-08-31. The
-  // standard rate is carried here deliberately: a preflight that over-states
-  // slightly is a confirmation someone accepts, and one that under-states is a
-  // bill they did not agree to.
+  // Sonnet 5 is on introductory pricing ($2/$10) through 2026-08-31; the standard
+  // rate is carried here so the preflight never under-states the eventual bill.
   'claude-sonnet-5': {
     provider: 'anthropic',
     input: 3,
@@ -179,15 +175,10 @@ export const MODELS: Record<string, ModelSpec> = {
     contextWindow: 1_000_000,
   },
 
-  // Every current 5.6 tier reasons by default and bills reasoning as output, so
-  // the output rate is the one that decides what a run costs — not the input
-  // rate the manifest size would suggest. Which of these is the right
-  // counterpart to a cheap Claude model is decision A, and is not settled here.
+  // Every 5.6 tier bills reasoning as output, so the output rate decides run cost.
   //
-  // `gpt-5.4-mini` is deliberately absent: the key still serves it, but it is
-  // not on the published models page, so its context window and cache behaviour
-  // cannot be verified. An unlisted model means the report omits cost, which is
-  // the intended outcome for a row nobody can check.
+  // `gpt-5.4-mini` is deliberately absent: unlisted on the published models page,
+  // so its context window and cache behaviour can't be verified.
   'gpt-5.6-luna': {
     provider: 'openai',
     input: 1,

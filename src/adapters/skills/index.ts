@@ -146,21 +146,18 @@ function broken(path: string, name: string, body: string, error: string): SkillD
  * we want to name ourselves in a finding.
  */
 function splitFrontmatter(text: string): { frontmatter: string; body: string } | undefined {
-  // Tolerate a BOM and CRLF; neither is the author's fault and both are common
-  // in files that arrive through Windows editors.
+  // Tolerate a BOM and CRLF, common from Windows editors.
   const normalised = text.replace(/^﻿/, '').replace(/\r\n/g, '\n');
   if (!normalised.startsWith('---\n')) return undefined;
 
-  // The closing fence is `---` alone on its own line. `\n---` alone would also
-  // match a `----` rule or a `--- note` in the YAML.
+  // `---` alone on its own line; `\n---` alone would also match `----` or `--- note`.
   const close = /\n---[ \t]*(\n|$)/.exec(normalised.slice(3));
   if (close === null) return undefined;
 
   const end = 3 + close.index;
   return {
     frontmatter: normalised.slice(4, end),
-    // The blank line after the fence belongs to the fence, not the body. It is
-    // dropped so a body starts at its first real character.
+    // Drop the blank line after the fence — it belongs to the fence, not the body.
     body: normalised.slice(end + close[0].length).replace(/^\n+/, ''),
   };
 }

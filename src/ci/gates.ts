@@ -54,9 +54,7 @@ export function evaluateAnalysisGates(analysis: Analysis, gates: CiGates): GateR
       limit: gates.maxTokens,
       observed,
       passed: observed <= gates.maxTokens,
-      // Deliberately silent about `tokens.deferred`: the budget is what you pay
-      // on every request, and folding skill bodies into it would make a surface
-      // that costs nothing until it fires look like the expensive one.
+      // Excludes tokens.deferred: skill bodies don't cost until they fire.
       message: `~${observed.toLocaleString()} resident tokens against a budget of ${gates.maxTokens.toLocaleString()}`,
     });
   }
@@ -85,9 +83,7 @@ export function evaluateRunGates(
     limit: gates.maxErrorRate,
     observed: round(rate),
     passed: rate <= gates.maxErrorRate,
-    // Not a bad answer — no answer. Errored trials leave the denominator, so
-    // past this rate the pass rates above are a confident report from whichever
-    // handful of trials happened to survive.
+    // Unmeasured, not failed: past this error rate, the pass rates above are unreliable.
     unmeasured: true,
     message:
       total === 0
@@ -123,10 +119,7 @@ export function evaluateRunGates(
     });
   }
 
-  // Per-scenario thresholds are themselves a gate, and the only one that is
-  // always on. There is deliberately no gate on the *mean* score: a headline
-  // mean is the number people optimise, and per-scenario thresholds already
-  // say everything it would.
+  // Always on; deliberately no gate on the mean score (Goodhart target).
   const failed = report.scenarios.filter((scenario) => !scenario.passed);
   results.push({
     id: 'thresholds',

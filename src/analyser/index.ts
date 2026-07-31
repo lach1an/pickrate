@@ -27,9 +27,7 @@ export function analyse(surface: Surface, options: AnalyseOptions = {}): Analysi
 
   for (const rule of rules) {
     if (disabled.has(rule.id)) continue;
-    // A rule that cannot say anything about this surface is skipped rather
-    // than run against an empty narrowing — silence and "no findings" should
-    // not be the same thing.
+    // Skipped rather than run against an empty narrowing — "no findings" must stay meaningful.
     if (!rule.appliesTo.includes(surface.kind)) continue;
     findings.push(...rule.run(surface));
   }

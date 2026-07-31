@@ -36,9 +36,7 @@ export function formatAnalysisMarkdown(analysis: Analysis, gates: GateResult[] =
   out.push(...sourceTable(analysis.source, [
     [noun, String(analysis.itemCount)],
     ['resident context', `~${analysis.tokens.total.toLocaleString()} tokens (${analysis.tokens.encoding}, approximate)`],
-    // Below the resident figure and labelled with its condition, exactly as in
-    // the terminal report: this number is large and harmless, the one above it
-    // is small and is not.
+    // Below the resident figure, same as the terminal report: this one is large and harmless.
     ...(analysis.tokens.deferred !== undefined
       ? ([['skill bodies', `~${analysis.tokens.deferred.toLocaleString()} tokens, paid only when a skill triggers`]] as Array<[string, string]>)
       : []),
@@ -87,8 +85,7 @@ export function formatEvalMarkdown(
 
   out.push(...sourceTable(report.source, [
     ['model', `\`${report.model}\``],
-    // Above the numbers, because it qualifies them: the same skills under a
-    // different presentation are a different measurement, not a better one.
+    // Above the numbers because it qualifies them — a different presentation is a different measurement.
     ...(report.presentation !== undefined
       ? ([['surfaced', `\`${report.presentation}\``]] as Array<[string, string]>)
       : []),
@@ -107,8 +104,7 @@ export function formatEvalMarkdown(
 
   if (diff) out.push('', ...diffSection(diff, noun));
 
-  // Diagnostics before the summary, deliberately: whoever optimises the number
-  // will write descriptions that game it, so what to fix outranks how you did.
+  // Diagnostics before the summary — what to fix outranks how you did (Goodhart).
   const confusion = report.scenarios.flatMap((scenario) =>
     scenario.confusions.map(
       ({ selected, count }) =>
@@ -199,8 +195,6 @@ export function formatMutationMarkdown(report: MutationReport, gates: GateResult
     '',
     `**Mutation score ${pct(report.mutationScore)}** — ${killed} of ${report.mutants.length} injected defects detected.`,
     '',
-    // Spec §11.7: blanking one description out of eight skills and out of forty
-    // tools are not the same operation. Averaging them would invent a number.
     `Comparable only against other ${report.source.adapter} runs, never averaged across adapters.`,
   );
 
@@ -282,8 +276,6 @@ function notesFor(scenario: ScenarioScore, noun: string): string {
   if (scenario.flaky) notes.push('flaky');
   if (scenario.restraint) notes.push('restraint');
   if (scenario.args && scenario.args.rate < 1) {
-    // Selection and arguments are different bugs with different fixes, so this
-    // is only worth a note when the two actually disagree.
     notes.push(`right ${noun}, wrong arguments ${scenario.args.passed}/${scenario.args.total}`);
   }
   if (scenario.errors > 0) notes.push(`${scenario.errors} errored`);

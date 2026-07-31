@@ -46,7 +46,7 @@ export const swapDescriptions: Operator = {
     const items = describable(surface);
     const mutants: Mutant[] = [];
 
-    // Every unordered pair, in surface order — deterministic without a seed.
+    // Every unordered pair, in surface order (deterministic, no seed).
     for (let i = 0; i < items.length; i++) {
       for (let j = i + 1; j < items.length; j++) {
         const a = items[i]!;
