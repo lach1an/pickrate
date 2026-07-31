@@ -1,9 +1,10 @@
 /**
  * Internal domain model.
  *
- * Nothing outside `src/adapters/mcp/` may import from `@modelcontextprotocol/sdk`.
- * The SDK is expected to churn hard through the `2026-07-28` transition; these
- * types are the seam that keeps that churn out of the analyser, runner, scorer
+ * Nothing outside `src/adapters/mcp/` may import an MCP SDK package
+ * (`@modelcontextprotocol/client` and friends). The `2026-07-28` transition
+ * arrived as an entirely renamed package line and still cost one file, which is
+ * what this seam is for: it keeps SDK churn out of the analyser, runner, scorer
  * and reporter.
  */
 

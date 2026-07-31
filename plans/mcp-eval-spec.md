@@ -32,6 +32,10 @@ All four Tier 1 SDKs (TypeScript, Python, Go, C#) speak `2026-07-28` as of today
 
 **Checked against npm, 28 July 2026 — the TypeScript SDK does not.** `@modelcontextprotocol/sdk@1.30.0` is `latest`, and it still declares `LATEST_PROTOCOL_VERSION = '2025-11-25'` with no `server/discover` and no routing headers. So the dual-protocol connector cannot be built on the SDK yet, and the choice is to hand-roll the stateless transport against a spec document with no server to verify it on, or to wait. **Waiting, for now.**
 
+**Resolved, 31 July 2026 — that check was right about the package and wrong about the SDK.** The line above is left standing because the mistake in it is worth keeping: `sdk@1.x` is the *frozen v1 line* and its `latest` was never going to move to `2026-07-28`. The revision shipped the same day under a **new package line** — `@modelcontextprotocol/client@2` on `@modelcontextprotocol/core@2` — so line 31 was accurate all along and the npm check contradicted it only because it assumed a package name. Where two sources disagree, the one that was checked against the wrong artefact loses.
+
+pickrate is now dual-protocol for real: `versionNegotiation: { mode: 'auto' }` probes `server/discover`, falls back to the 2025 handshake, and does it on stdio as well as HTTP. The interim hand-rolled probe is deleted — it read `protocolVersions` where the spec says `supportedVersions`, so it had never once reported a version, and every failure path returned `undefined` by design, which is why nothing noticed.
+
 One thing that does *not* have to wait: `ResultSchema` is a Zod loose object, so unknown keys survive parsing. `ttlMs` and `cacheScope` are readable through the current SDK the moment a server sends them, which is why §12.1's lints landed ahead of the transport.
 
 ---
