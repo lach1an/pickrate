@@ -1,8 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { Client, StreamableHTTPClientTransport, type Transport } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { toolsOf } from '../../surface.js';
 import type { JsonSchema, Surface, SurfaceSource, ToolDef } from '../../types.js';
 import { identityPresentation, type Adapter, type LoadOptions, type Presentation } from '../contract.js';
@@ -50,13 +48,14 @@ export const mcpAdapter: Adapter = {
 /**
  * The one place that knows MCP exists.
  *
- * Everything downstream consumes `Surface`, so the `2026-07-28` transition
- * (stateless, no handshake, `Mcp-Method`/`Mcp-Name` routing headers) should be
- * contained to this file plus a transport swap.
+ * Everything downstream consumes `Surface`, and the `2026-07-28` transition
+ * (stateless, no handshake, `Mcp-Method`/`Mcp-Name` routing headers) landed
+ * here and nowhere else — which is what the seam was for.
  *
- * NOTE: `@modelcontextprotocol/sdk@1.29.0` still negotiates `2025-11-25` and
- * still performs the initialize handshake. Revisit once a `2026-07-28` SDK
- * ships; the seam is here so that stays a one-file change.
+ * The SDK shipped that revision as a *new package line* rather than a new
+ * version of the old one: `@modelcontextprotocol/client@2` speaks it, while
+ * `@modelcontextprotocol/sdk@1.30.0` remains on `2025-11-25` and always will.
+ * Watching the old name for a version bump would have waited forever.
  */
 export async function loadManifest(
   target: string | Target,
@@ -68,70 +67,81 @@ export async function loadManifest(
 
   const timeoutMs = options.timeoutMs ?? 30_000;
 
-  // The `2026-07-28` probe, ahead of the legacy handshake. It cannot go
-  // through the SDK: `Client.connect` performs `initialize` first, which is
-  // exactly the thing the new revision removed, and no shipped SDK version
-  // knows the method (1.30.0 still declares 2025-11-25 as latest). So it is a
-  // raw POST, HTTP only — under stdio the SDK owns the subprocess.
-  //
-  // Every failure path is silent by design: today *every* server declines
-  // this, and a probe that warned would be a warning on every run.
-  const discoveredVersions = t.kind === 'http' ? await discover(t.url, options, timeoutMs) : undefined;
-
   const transport = createTransport(t, options);
-  const client = new Client(CLIENT_INFO, { capabilities: {} });
+
+  // `mode: 'auto'` is the dual-protocol posture: `connect` probes with
+  // `server/discover` and falls back to the legacy `initialize` handshake for
+  // anything it does not positively recognise as modern. It replaces a
+  // hand-rolled probe that could only reach HTTP — under stdio the SDK owns the
+  // subprocess — and that read `protocolVersions` where the spec says
+  // `supportedVersions`, so it never once reported a version. The SDK also
+  // knows things that probe did not: the timeout verdict is transport-aware
+  // (silence on a local pipe is a legacy server; silence on a deployed server
+  // is an outage) and the spec's `-32022` corrective continuation is handled.
+  //
+  // The cost is one extra round trip on HTTP, or one extra short-lived server
+  // spawn on stdio, per load. No model spend either way, so `inspect` still
+  // needs no key.
+  const client = new Client(CLIENT_INFO, {
+    capabilities: {},
+    versionNegotiation: { mode: 'auto' },
+  });
 
   try {
     await withTimeout(client.connect(transport), timeoutMs, `connect to ${t.display}`);
 
-    // Cache metadata off the first page. Later pages may repeat it; the first
-    // is what a client caching the catalogue would act on, and disagreement
-    // between pages is a server bug this analyser does not yet model.
     let listCache: SurfaceSource['listCache'];
 
-    const listAll = async (): Promise<ToolDef[]> => {
-      const tools: ToolDef[] = [];
-      let cursor: string | undefined;
-      let first = true;
-      do {
-        const page = await withTimeout(
-          client.listTools(cursor === undefined ? {} : { cursor }),
-          timeoutMs,
-          'tools/list',
-        );
-        // `ResultSchema` is a loose object, so SEP-2549's keys survive parsing
-        // even though this SDK version has never heard of them.
-        if (first) listCache = readListCache(page);
-        first = false;
-        for (const tool of page.tools) tools.push(normaliseTool(tool));
-        cursor = page.nextCursor;
-      } while (cursor !== undefined);
-      return tools;
+    const listTools = async (what: string): Promise<ToolDef[]> => {
+      // One call walks every page: with no cursor, the v2 client aggregates the
+      // whole catalogue and preserves page-1 metadata on the result. That first
+      // page is what a client caching the catalogue would act on, and
+      // disagreement between pages is a server bug this analyser does not model.
+      //
+      // `cacheMode: 'bypass'` is load-bearing, not defensive. The v2 client
+      // caches the list verbs and *defaults* to serving a fresh entry with no
+      // round trip — which would answer the ordering re-list below from memory,
+      // compare it equal to the first, and report a stability nobody measured.
+      // It only misfires against servers sending `ttlMs`: `2026-07-28` servers,
+      // the only ones SEP-2549's ordering guarantee binds, and exactly the ones
+      // this is meant to police. A test fails if this option is removed.
+      const options = { cacheMode: 'bypass' } as const;
+      const result = await withTimeout(client.listTools({}, options), timeoutMs, what);
+
+      // `ResultSchema` is a loose object, so SEP-2549's keys survive parsing
+      // whether or not the schema names them.
+      listCache = readListCache(result);
+      return result.tools.map(normaliseTool);
     };
 
-    const tools = await listAll();
+    const tools = await listTools('tools/list');
 
     // Second listing, for the ordering check only. One extra round trip against
     // a failure that is otherwise invisible until the invoice arrives is not a
     // close call — and it costs no model spend, so `inspect` still needs no key.
     // A re-list that throws leaves the answer *absent*, never `true`: "we did
     // not find out" and "it was stable" are different facts (see SurfaceSource).
-    const listOrderStable = await listAll().then(
+    const listOrderStable = await listTools('tools/list (ordering check)').then(
       (second) => sameOrder(tools, second),
       () => undefined,
     );
 
     const serverInfo = client.getServerVersion();
+    const protocolVersion = client.getNegotiatedProtocolVersion();
+    // Absent when the connection went legacy — the probe found nothing to
+    // report, which is not the same as a server that offered no versions.
+    const discoveredVersions = client.getDiscoverResult()?.supportedVersions;
+
     const source: SurfaceSource = {
       kind: t.kind,
       adapter: 'mcp',
       target: t.display,
       fetchedAt: new Date().toISOString(),
       ...(serverInfo ? { serverInfo: { name: serverInfo.name, version: serverInfo.version } } : {}),
-      ...(protocolVersionOf(transport) ? { protocolVersion: protocolVersionOf(transport)! } : {}),
+      ...(protocolVersion !== undefined ? { protocolVersion } : {}),
       ...(listOrderStable !== undefined ? { listOrderStable } : {}),
       ...(listCache ? { listCache } : {}),
-      ...(discoveredVersions ? { discoveredVersions } : {}),
+      ...(discoveredVersions?.length ? { discoveredVersions: [...discoveredVersions] } : {}),
       ...(options.headers && hasCredential(options.headers) ? { credentialed: true } : {}),
     };
 
@@ -192,45 +202,6 @@ function hasCredential(headers: Record<string, string>): boolean {
   return Object.keys(headers).some((name) => /^(authorization|proxy-authorization|cookie|x-api-key)$/i.test(name));
 }
 
-/** Versions advertised by `server/discover`, or `undefined` if it did not answer. */
-async function discover(
-  url: string,
-  options: LoadOptions,
-  timeoutMs: number,
-): Promise<string[] | undefined> {
-  try {
-    const response = await withTimeout(
-      fetch(url, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          accept: 'application/json',
-          // SEP-2243: routing headers, so a gateway can dispatch without
-          // reading the body. Sent on the probe because a gateway that needs
-          // them to route is precisely the deployment this is aimed at.
-          'Mcp-Method': 'server/discover',
-          ...options.headers,
-        },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'server/discover' }),
-      }),
-      timeoutMs,
-      'server/discover',
-    );
-    if (!response.ok) return undefined;
-
-    const body: unknown = await response.json();
-    const versions = (body as { result?: { protocolVersions?: unknown } }).result?.protocolVersions;
-    if (!Array.isArray(versions)) return undefined;
-
-    const strings = versions.filter((v): v is string => typeof v === 'string');
-    return strings.length > 0 ? strings : undefined;
-  } catch {
-    // A legacy server 404s, 405s, or returns a JSON-RPC error here. All of
-    // those mean "speak the old protocol", which is what happens next anyway.
-    return undefined;
-  }
-}
-
 /** Read a captured `tools/list` response. Lets the analyser run with no server. */
 export async function loadManifestFromFile(path: string): Promise<Surface> {
   const parsed: unknown = JSON.parse(await readFile(path, 'utf8'));
@@ -282,12 +253,9 @@ function createTransport(
   options: LoadOptions,
 ): Transport {
   if (t.kind === 'http') {
-    // The SDK declares `sessionId: string` while assigning `undefined` to it,
-    // which trips `exactOptionalPropertyTypes`. One cast, contained here, is
-    // cheaper than relaxing the flag for the whole project.
     return new StreamableHTTPClientTransport(new URL(t.url), {
       ...(options.headers ? { requestInit: { headers: options.headers } } : {}),
-    }) as unknown as Transport;
+    });
   }
   return new StdioClientTransport({
     command: t.command,
@@ -318,11 +286,6 @@ function normaliseTool(tool: Record<string, unknown>): ToolDef {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function protocolVersionOf(transport: Transport): string | undefined {
-  const v = (transport as { protocolVersion?: unknown }).protocolVersion;
-  return typeof v === 'string' ? v : undefined;
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
