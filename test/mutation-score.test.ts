@@ -94,6 +94,34 @@ describe('judgeMutant', () => {
     assert.equal(record.restraintOnly, false);
   });
 
+  it('kills a mutant that collapses one scenario out of many', () => {
+    // The failure that made this rule: on the live 3 August corpus a blanked
+    // description took its own scenario from 100% to 30% and was reported as a
+    // survivor, because 70 points across sixteen scenarios is 4.4 points of
+    // mean. Dilution scales with corpus size, so the better the corpus the more
+    // invisible a real kill becomes.
+    const wide = baselineOf([reportOf(sixteen(1)), reportOf(sixteen(1))], 10);
+    const collapsed = { ...sixteen(1), s1: 0.3 };
+
+    const record = judgeMutant(mutantOf(), reportOf(collapsed), wide);
+
+    assert.ok(Math.abs(record.worstDrop - 0.7) < 1e-9);
+    assert.equal(record.worstScenario, 's1');
+    assert.ok(record.killed, 'the collapse is the finding');
+    assert.ok(record.delta < wide.noise, 'and the mean alone would have missed it');
+  });
+
+  it('measures its floor per scenario, not from the mean', () => {
+    // The two statistics are not interchangeable: the widest of sixteen noisy
+    // scenarios swings far further than the mean of all sixteen. Judging a
+    // worst-scenario drop against a mean-derived floor would kill everything.
+    const noisy = baselineOf([reportOf({ a: 1, b: 1 }), reportOf({ a: 0.6, b: 1 })], 10);
+
+    assert.ok(Math.abs(noisy.scenarioNoise - 0.4) < 1e-9, 'the widest single-scenario gap');
+    assert.ok(Math.abs(noisy.noise - 0.2) < 1e-9, 'while the mean moved half as far');
+    assert.equal(judgeMutant(mutantOf(), reportOf({ a: 0.7, b: 1 }), noisy).killed, false);
+  });
+
   it('carries the mutant\'s targets through, so a survivor is diagnosable', () => {
     const record = judgeMutant(mutantOf(['delete_branch']), reportOf({ hit: 0.95, restraint: 1 }), baseline);
 
@@ -199,4 +227,9 @@ function mutantOf(targets: string[] = ['create_branch']): Mutant {
     describe: 'test mutant',
     apply: (surface) => surface,
   };
+}
+
+/** Sixteen scenarios all at the same score — the shape a real corpus has. */
+function sixteen(score: number): Record<string, number> {
+  return Object.fromEntries(Array.from({ length: 16 }, (_, i) => [`s${i + 1}`, score]));
 }

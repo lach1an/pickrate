@@ -1,4 +1,5 @@
 import pc from 'picocolors';
+import { minNoise } from '../mutator/index.js';
 import { formatUsd } from '../provider/pricing.js';
 import { itemNoun } from '../surface.js';
 import type { MutantRecord, MutationReport } from '../types.js';
@@ -25,10 +26,10 @@ export function formatMutationReport(report: MutationReport): string {
     `  ${pc.bold('baseline')}  ${pct(report.baseline.score)}` +
       pc.dim(
         `  from ${report.baseline.runs.length} clean runs of ${report.trials} trials` +
-          ` · noise floor ${pct(report.baseline.noise)}`,
+          ` · a mutant must drop one scenario by ${pct(report.baseline.scenarioNoise)}`,
       ),
   );
-  if (report.baseline.observedNoise === 0) {
+  if (report.baseline.observedNoise === 0 && report.baseline.scenarioNoise === minNoise(report.trials)) {
     // Exact agreement usually means a deterministic provider, not a stable server.
     out.push(
       pc.dim(`            the two clean runs agreed exactly — the floor is holding the bar up`),
@@ -60,6 +61,8 @@ function formatMutants(report: MutationReport): string {
       const mark = mutant.killed ? pc.green('✓') : pc.yellow('·');
       const verdict = mutant.killed ? pc.green('detected') : pc.yellow('survived');
       const notes: string[] = [];
+      // Which scenario took the hit, since that is where the verdict came from.
+      if (mutant.worstScenario !== undefined) notes.push(pc.dim(`on ${mutant.worstScenario}`));
       if (mutant.restraintOnly) notes.push(pc.yellow('restraint only'));
 
       return (
@@ -101,13 +104,20 @@ function formatScore(report: MutationReport): string {
 }
 
 /** Signed and painted: a mutant that *improved* the score is worth seeing. */
+/**
+ * The number the verdict was actually made on: the worst single-scenario drop.
+ *
+ * Printing the mean here instead would show a mutant killed on a 4% move, or
+ * spared despite a 70% one — a reader cannot check a verdict against a
+ * statistic it was not made from. The mean stays in the JSON as `delta`.
+ */
 function delta(mutant: MutantRecord): string {
-  const size = pct(Math.abs(mutant.delta));
+  const size = pct(Math.abs(mutant.worstDrop));
   // "−0%" would imply a drop too small to see. No movement is no movement.
-  const text = (size === '0%' ? size : `${mutant.delta > 0 ? '−' : '+'}${size}`).padStart(6);
+  const text = (size === '0%' ? size : `${mutant.worstDrop > 0 ? '−' : '+'}${size}`).padStart(6);
 
   if (mutant.killed) return pc.green(text);
-  return mutant.delta <= 0 ? pc.dim(text) : pc.yellow(text);
+  return mutant.worstDrop <= 0 ? pc.dim(text) : pc.yellow(text);
 }
 
 function pct(value: number): string {

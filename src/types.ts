@@ -467,8 +467,19 @@ export interface MutationBaseline {
   runs: EvalReport[];
   /** Mean scenario score, pooled across both runs. */
   score: number;
-  /** What a drop must clear to count: `observedNoise`, floored at `1/trials`. */
+  /** What a *mean* drop must clear. Reported, but no longer what kills. */
   noise: number;
+  /**
+   * What a per-scenario drop must clear: the widest gap any single scenario
+   * showed between the two clean runs, floored at `1/trials`.
+   *
+   * Separate from `noise` because it is the floor for a different statistic,
+   * and the two are not interchangeable — the maximum of N noisy scenarios is
+   * much larger than the noise on their mean. Judging a worst-scenario drop
+   * against a mean-derived floor would kill every mutant, which is the same
+   * failure as `minNoise` existing at all, one level up.
+   */
+  scenarioNoise: number;
   /**
    * The raw gap between the two runs, before flooring.
    *
@@ -488,10 +499,28 @@ export interface MutantRecord {
   describe: string;
   /** Mean scenario score under this mutant. */
   score: number;
-  /** `baseline.score - score`. Positive means the surface got worse. */
-  delta: number;
   /**
-   * Did the harness notice? `delta > baseline.noise`.
+   * `baseline.score - score`. Positive means the surface got worse.
+   *
+   * A diagnostic, not the verdict — see `worstDrop`.
+   */
+  delta: number;
+  /** The largest single-scenario drop. Positive means damage; this is what kills. */
+  worstDrop: number;
+  /** Which scenario that was. Absent when nothing dropped at all. */
+  worstScenario?: string;
+  /**
+   * Did the harness notice? `worstDrop > baseline.scenarioNoise`.
+   *
+   * On the worst scenario rather than the mean, because a mutant damages
+   * specific items and its effect concentrates in the few scenarios that
+   * exercise them. Dividing by the whole scenario count dilutes a real kill in
+   * proportion to corpus size: the live 3 August session took one scenario from
+   * 100% to 30% — a description doing real routing, destroyed — and reported it
+   * as a survivor, because 70 points across sixteen scenarios is 4.4 points of
+   * mean. The better the corpus, the more invisible the signal. Same reasoning
+   * as M4's regression gate, which is on the worst per-scenario drop for
+   * exactly this reason.
    *
    * A mutant that is *not* killed is inconclusive, never a pass: it means
    * either the harness is insensitive or no scenario exercises what was

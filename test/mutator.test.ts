@@ -194,6 +194,26 @@ describe('planMutants', () => {
     ]);
   });
 
+  it('damages items the scenarios exercise before ones they do not', async () => {
+    // The live 3 August session put three of six mutants on `alloydb-basics`,
+    // an orphan — surface order is alphabetical and it sorted first — so half a
+    // $4 budget bought three guaranteed survivors.
+    const surface = await mcpSurface();
+    const plan = planMutants(surface, { limit: 2, operators: ['blank-description'], exercised: ['delete_branch'] });
+
+    assert.deepEqual(plan.map((m) => m.targets[0]), ['delete_branch', 'create_branch']);
+  });
+
+  it('still reaches untested items once the tested ones run out', async () => {
+    // A partition, not a filter: a survivor naming an orphan is the only way
+    // "no scenario covers this" ever gets reported.
+    const surface = await mcpSurface();
+    const plan = planMutants(surface, { limit: 9, operators: ['blank-description'], exercised: ['delete_branch'] });
+
+    assert.equal(plan.length, 3, 'every item still gets a mutant');
+    assert.deepEqual(new Set(plan.map((m) => m.targets[0])), new Set(surface.items.map((i) => i.name)));
+  });
+
   it('is byte-identical run to run', async () => {
     const surface = await mcpSurface();
     const ids = (s: typeof surface) => planMutants(s, { limit: 5 }).map((m) => m.id);
