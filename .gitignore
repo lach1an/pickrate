@@ -1,6 +1,10 @@
 node_modules/
 dist/
 *.tsbuildinfo
+# Third-party skills, fetched at a pinned SHA by scripts/fetch-corpus.ts. The
+# scenario files beside them are ours and are tracked.
+corpus/*
+!corpus/*.yaml
 .env
 .env.*
 !.env.example

@@ -1,0 +1,157 @@
+# The live measurement corpus: 15 real skills from google/skills, pinned.
+#
+#   npx tsx scripts/fetch-corpus.ts          # fetch the surface (once)
+#   pickrate inspect corpus/gcp-data         # free, no key
+#   pickrate run corpus/gcp-data.yaml        # baseline
+#   pickrate mutate corpus/gcp-data.yaml     # the measurement
+#
+# Why this exists rather than test/fixtures/mutation.yaml: that fixture's
+# surface has three tools whose names restate their descriptions, so every
+# description mutation survived and the mutation score was structurally zero
+# before a single model call. Here the names are product brands — nothing about
+# `spanner` says "globally consistent transactions" — so the description is the
+# only thing routing a selection, which is the premise mutation testing needs.
+#
+# Three authoring rules, each earned by a specific failure of that first run:
+#
+#   1. No prompt contains its target's name or a synonym of it. Every prompt is
+#      phrased as the symptom a user would actually arrive with. It may name the
+#      *product* a cluster shares — the first baseline run floored four
+#      scenarios at "got nothing" because stripping "BigQuery" left the model no
+#      reason to reach for a Google Cloud skill at all. Naming the product does
+#      not leak the answer when three skills claim it and the interface is the
+#      discriminator; naming the skill would.
+#   2. No destructive framing. The old `delete-branch` scenario scored 0/10
+#      because the model *declined* an irreversible action, not because it
+#      mis-selected — that measures refusal, and a scenario already on the floor
+#      is one no mutant can move.
+#   3. Near-misses within a cluster, because a mutant can only show up as a swap
+#      to a neighbour. The pairs are marked below.
+#   4. A prompt must be self-contained. "turn these PromQL expressions into
+#      dashboard definitions" scored 0/5 because the expressions were not there
+#      and the model asked for them instead of acting — that measures
+#      conversational repair, not selection, and it floors a scenario just as
+#      dead as a refusal does.
+#
+# Selection-only, for the same reason mutation.yaml is: argument matching is a
+# separate metric that would move the mean for reasons unrelated to the defect.
+target:
+  type: skills
+  path: ./gcp-data
+
+defaults:
+  trials: 10
+  threshold: 0.9
+  model: claude-haiku-4-5
+  concurrency: 4
+  presentation: skill-tool
+
+scenarios:
+  # --- provisioning: alloydb / cloud-sql / spanner / bigtable compete, and
+  # `gcloud` claims "any GCP resources" over the top of all four.
+  - id: managed-mysql
+    prompt: "we need a managed MySQL instance for the staging environment"
+    expect:
+      select: cloud-sql-basics
+
+  # Spanner's pitch is global strong consistency; nothing in the name says so.
+  - id: global-consistency
+    prompt: "we're going multi-region and need strongly consistent transactions across three continents — help me lay out the keys"
+    expect:
+      select: spanner-basics
+    threshold: 0.8
+
+  # Near-miss with the above: both are "design a key so it doesn't hotspot".
+  # Only the descriptions separate wide-column from relational.
+  - id: hotspotting
+    prompt: "our time-series writes are all landing on one node and throughput has collapsed — how should the row key and column families be arranged?"
+    expect:
+      select: bigtable-basics
+    threshold: 0.8
+
+  # --- the BigQuery family: three skills over one product, separated purely by
+  # the interface each one is for. The richest mutation target in the corpus.
+  - id: warehouse-load
+    prompt: "I need to ingest CSV files into BigQuery and expose a view over them — walk me through it"
+    expect:
+      select: bigquery-basics
+
+  - id: in-warehouse-forecast
+    prompt: "forecast next quarter's signups from the warehouse table without exporting the data anywhere"
+    expect:
+      select: bigquery-ai-ml
+    threshold: 0.8
+
+  # The money scenario. `bigquery-bigframes` is chosen only by its own negative
+  # routing ("Don't use for SQL-first workflows — use bigquery-basics"), so a
+  # blanked or swapped description here should be visibly lethal.
+  - id: notebook-pandas
+    prompt: "I want to do this analysis in a notebook with pandas syntax, but the dataset is far too big to pull down locally"
+    expect:
+      select: bigquery-bigframes
+    threshold: 0.7
+
+  # --- lineage: the two skills cite each other by name in their descriptions,
+  # which is the strongest swap-descriptions target here.
+  - id: provenance
+    prompt: "the revenue figures in this BigQuery table look wrong — I need to see where its data actually comes from before I trust it"
+    expect:
+      select: datalineage-summary
+    threshold: 0.8
+
+  - id: blast-radius
+    prompt: "we're about to change the schema of a BigQuery table — what downstream reports and jobs would that affect?"
+    expect:
+      select: datalineage-bigquery-asset-impact-analysis
+    threshold: 0.8
+
+  # --- querying: "query" belongs to both logs and the warehouse. The logging
+  # skill's description is what rules SQL out.
+  - id: error-hunt
+    prompt: "find every 5xx the checkout service returned last night"
+    expect:
+      select: cloud-logging-query-generation
+
+  # --- observability: discovery vs rendering, another explicit cross-reference.
+  - id: metric-discovery
+    prompt: "what's actually available to alert on for our serverless containers?"
+    expect:
+      select: cloud-monitoring-metric-selection
+    threshold: 0.8
+
+  - id: dashboard-widgets
+    prompt: "how do I declaratively define a Cloud Monitoring dashboard from PromQL so I can commit it to git?"
+    expect:
+      select: cloud-monitoring-chart-generation
+    threshold: 0.8
+
+  # --- a control that should sit near 100% and stay there. If a mutant
+  # elsewhere moves this, the damage was context-wide, not description-local.
+  - id: signed-link
+    prompt: "give a partner a time-limited link to one file without opening up the whole bucket"
+    expect:
+      select: google-cloud-storage-basics
+
+  # --- restraint: plausible engineering requests this surface cannot answer.
+  # Deliberately not "what's the capital of France" — the interesting failure is
+  # a skill volunteering for adjacent work, and the GKE and frontend skills that
+  # would cover these were left out of the selection for exactly that reason.
+  - id: no-skill-frontend
+    prompt: "the login button is misaligned on mobile Safari"
+    expect:
+      select: null
+
+  - id: no-skill-kubernetes
+    prompt: "our pods keep getting evicted around 3am and I can't work out why"
+    expect:
+      select: null
+
+  - id: no-skill-regex
+    prompt: "write me a regex that validates UK postcodes"
+    expect:
+      select: null
+
+  - id: no-skill-release
+    prompt: "draft the release announcement for version 4.2"
+    expect:
+      select: null
