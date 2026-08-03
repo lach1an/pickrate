@@ -5,7 +5,101 @@
 
 ---
 
+## Progress, 2 August 2026
+
+**Both accounts are funded, the run happened, and A, B and 0b are all settled.** Total spend: **$0.23**. Three bugs fell out of it — one meant the harness's default model could not complete a single live trial, and the third was created by fixing the first.
+
+### The bug the offline suite could never see
+
+**`claude-haiku-4-5` is `reasoning: 'none'` in the model table, and `anthropic.ts` sent `output_config: { effort }` unconditionally.** Every trial returned `400 This model does not support the effort parameter` — 80 of 80, on `DEFAULT_MODEL`. `pickrate run` out of the box, with no flags, against the documented default, could not measure anything. 333 offline tests passed throughout, because no test ever built a request.
+
+The OpenAI provider had gated this correctly since step 3 (`specFor(model)?.reasoning === 'effort-scale'`); the Anthropic one predated the model table and never went back for it. Both now derive it from one shared `reasoningFor(model)` in `prompt.ts` — shared for the invariant-2 reason, and used in **both** the request and `regime()`, because a report claiming `reasoning low` for a request that carried no effort parameter describes a regime that never ran. `regimeHash` now separates the two, which is correct and which changes the hash for every non-reasoning model.
+
+`test/reasoning.test.ts` is the missing test, and the seam it needed: `requestFor` is now exported and pure on both providers, for the same reason `trialFrom` already was — *the parameters that vary by model are only assertable without a client, key or network*. Verified failing with the guard removed.
+
+**The lesson is narrower than "test the request".** Everything the offline suite covers is downstream of a response. The request itself — the one artifact that is pure, cheap to assert, and the actual measurement instrument — had no coverage at all, so any per-model divergence between the table and what is sent was invisible by construction. `capabilitiesFor` and the request builder had disagreed since the table landed.
+
+### The second bug: an alias loses its cost line
+
+Correction 0.5 required that `costOf` *"fall back to the requested id when the resolved one has no price entry"*. It was specified, never implemented. The API resolves `claude-haiku-4-5` → `claude-haiku-4-5-20251001`, which has no table entry, so `costOfTrials` returned undefined and the run printed `no price on file for this model` — on the default model, i.e. on most runs. Fixed with a `pricingSpec(resolved, requested)` fallback that prefers the resolved id and never lets the alias override it.
+
+### The third bug, which the first fix uncovered
+
+Setting `DEFAULT_MODEL` removed an error that had been guarding something else by accident. `--provider openai` against a config whose `defaults.model` is a Claude id used to fail loudly with "no default model — pass `--model`"; with a default in place it silently sent `claude-haiku-4-5` to the Responses API, 400 on every trial. The provider default only applies when *no* model is named, and the config always names one.
+
+`providerFor` now refuses the contradiction. The line it draws matters: **the table contradicts, the naming convention never does.** An id with a `MODELS` entry has a known owner and a flag cannot reassign it; a `gpt-6-unreleased` that matches only a prefix stays overridable, because that is the escape hatch `--provider` exists for and `test/provider-registry.test.ts` already asserted it. Refusing on a guess would have traded a real bug for a real regression.
+
+### Decision A — `gpt-5.6-luna`, and the premise behind the question was wrong
+
+One config (4 scenarios) × 20 trials × 3 models, on `test/fixtures/git-server.json`:
+
+| model | cost | out tokens/trial (mean) | create-branch | colloquial | restraint | named |
+|---|---|---|---|---|---|---|
+| `claude-haiku-4-5` | $0.0965 | 71.5 | 100% | 100% | 100% | 50% |
+| `gpt-5.6-luna` | **$0.0390** | 41.0 | 100% | 85% | 100% | 75% |
+| `gpt-5.6-terra` | $0.0957 | 39.6 | 100% | 95% | 100% | 55% |
+
+**The worry that framed the question — a nominally cheap tier that reasons by default may not be cheap — is measured and does not hold at `effort: low`.** Luna spent *fewer* output tokens per trial than the non-reasoning Anthropic default (41 vs 72) and cost 2.5× less for the identical run. At low effort on prompts this easy, these models largely do not reason, which is exactly the ceiling-not-floor behaviour §2.6 predicted.
+
+**And paying more bought nothing.** Terra costs 2.45× luna and is *worse* on `create-branch-named` (55% vs 75%) while better on `create-branch-colloquial` (95% vs 85%). Tier price does not order selection accuracy — which is a small preview of the M5 result and an argument for the Δ-not-ranking framing in §5.
+
+So the counterpart to a cheap Claude model is the tier that matches it on list price ($1/$6 against $1/$5). `DEFAULT_MODEL = 'gpt-5.6-luna'` now exists in `openai.ts`, `providerFor` no longer throws without `--model`, and `test/provider-registry.test.ts` asserts the id rather than the absence.
+
+### Decision B — the preflight stays a promise, with a stated scope
+
+The estimate came in **above** actual on all three models — $0.06 vs $0.039, $0.14 vs $0.096, $0.10 vs $0.097. It did not become a lower bound, so it does not become a range.
+
+The 80-token output allowance is a good *mean* and not a bound: mean 41 (luna), 40 (terra), 72 (haiku), but 19 of 80 haiku trials exceeded 80 and the worst trial anywhere was 107. Since the allowance is multiplied across a whole run, the mean is the right statistic and the estimate absorbs the tail.
+
+**Scope, stated because it is the whole value of the answer:** this is one surface, one prompt shape and `effort: low` — the only effort this harness sends. It says nothing about `high`, where reasoning is the dominant output term and §1.4b's concern returns intact. Revisit if `--reasoning` ever exposes the knob.
+
+### Step 0b — answered, and the previously recorded numbers were measuring the wrong thing
+
+**The 30 July table subtracted the wrong floor.** It costed each surface against a request with *no tools at all*, which books two fixed costs against the manifest: the provider's tool scaffolding, and — for skills — the dispatch tool and listing preamble the adapter adds no matter what. Both are constants. The tell was in the numbers as recorded: the Claude gaps were near-identical in absolute terms (567, 616, 580, 630 tokens) across surfaces of very different sizes, which is a constant wearing a percentage's clothing.
+
+`scripts/calibrate-tokens.ts` now floors against the **envelope** — the same presentation with the manifest replaced by one minimal item of the same kind — and reports that envelope on its own:
+
+| target | local | actual | delta | envelope |
+|---|---|---|---|---|
+| **`claude-haiku-4-5`** | | | | |
+| `git-server.json` (MCP) | 227 | 288 | −21.2% | 506 |
+| `messy-server.json` (MCP) | 273 | 383 | −28.7% | 506 |
+| `skills/clean` | 82 | 91 | −9.9% | 571 |
+| `skills/messy` | 314 | 373 | −15.8% | 571 |
+| **`claude-opus-5`** | | | | |
+| `git-server.json` (MCP) | 227 | 388 | −41.5% | 304 |
+| `messy-server.json` (MCP) | 273 | 516 | −47.1% | 304 |
+| `skills/clean` | 82 | 124 | −33.9% | 391 |
+| `skills/messy` | 314 | 493 | −36.3% | 391 |
+| **`gpt-5.6-luna`** | | | | |
+| `git-server.json` (MCP) | 227 | 180 | +26.1% | 5 |
+| `messy-server.json` (MCP) | 273 | 176 | +55.1% | 5 |
+| `skills/clean` | 82 | 89 | −7.9% | 56 |
+| `skills/messy` | 314 | 335 | −6.3% | 56 |
+
+**The correction-factor answer is still "no", and now for a better-supported reason.** The error spans −47% to +55% and changes sign by *provider* as well as by adapter: OpenAI over-counts MCP by half, Anthropic under-counts everything, and the two Claude tokeniser generations differ from each other by ~20 points on the same surface. `TokenReport.approximate` stays.
+
+**What did change is the direction of the Claude error, and the 30 July entry has it backwards.** With the wrong floor, skills looked like the catastrophic case (−87.6%); with the right one, skills are the *best* case on every model and MCP is the worse one. The 15–20% under-count the research predicted turns out to be about right for `claude-haiku-4-5` (−10% to −29%) and badly optimistic for `claude-opus-5` (−34% to −47%) — consistent with the newer tokeniser producing ~30% more tokens for the same bytes, which is a thing `inspect` cannot know offline because it never sees `--model`.
+
+**The genuinely new finding is the envelope, and it is not small.** Being able to call tools at all costs 506–571 tokens on `claude-haiku-4-5` before any manifest exists. On `skills/clean` — 82 local tokens — the envelope is **seven times** the number `inspect` prints. It is a real cost on every request, it is invisible in the headline, and it is also *not the author's to fix*, which is the argument for reporting it separately rather than folding it in. Note it is not monotonic with the tokeniser: opus-5 counts more tokens per byte of manifest and has a **smaller** envelope, so the two cannot be collapsed into one figure.
+
+**`inspect`'s copy still does not change.** It already says `approximate`, and the honest correction is not a factor but a second number (the envelope) — which is `TokenReport`'s shape question, not a copy question, and it lands with 6a's eager/deferred pair rather than on its own.
+
+### Still to verify — item 5 answered, item 3 still open
+
+- **Item 5, resolved model ids: the two providers differ.** Anthropic returns a dated snapshot for an alias (`claude-haiku-4-5-20251001`); OpenAI returns `gpt-5.6-luna` unchanged. So §2.7's alias-re-point-becomes-a-refusal upgrade is **real on Anthropic and inert on OpenAI**, where a re-pointed alias would still slide under a stored baseline. `isDatedSnapshot`'s warning is not retired; on OpenAI it is the only defence.
+- **Item 3, cache retention:** untested. Every fixture surface is far below the 1024-token minimum prefix, so `0 cached` on all three runs is the expected result and confirms nothing. Still M5-corpus work, as recorded on 30 July.
+
+### Recorded
+
+`test/fixtures/trials/git-server-openai.json` — 80 luna trials (20 per scenario), replays cleanly against `test/fixtures/pickrate.yaml`. Step 4's Δ fixture wants scenarios that disagree past and inside the floor *by construction*; this is the real material to build that from, and it is now paid for.
+
+---
+
 ## Progress, 30 July 2026
+
+> **Superseded in part by 2 August.** The OpenAI rows below subtract a no-tools floor rather than an envelope, so they charge the adapter's fixed dispatch cost to the skills manifests; the skills deltas in particular are wrong (−43.4% and −19.7% here, −7.9% and −6.3% when measured against the envelope). The conclusion the entry draws — no correction factor — survives the correction.
+
 
 **Step 3 has landed as code, and its calibration run has not happened — the account is out of quota.** `src/provider/openai.ts`, the `providerFor()` registry, `--provider`, the OpenAI rows in `MODELS`, and `--record` are all in, typechecked, and covered by 54 new offline assertions (327 passing, still no key needed). What is *not* settled is decisions A and B, because both need the run: `gpt-5.6-luna` and `gpt-5.6-terra` both return `429 exceeded your current quota`. The provider therefore ships **with no `DEFAULT_MODEL`** — `--provider openai` without `--model` is an error naming the candidates, on the grounds that a default picked to make the code compile becomes the model every published comparison quietly ran on.
 
@@ -103,6 +197,8 @@ Steps 0–2 are unblocked. These three are not, and two of them cost money to an
 | C | Where does the retrieval score live? (§8 q4) | Design decision, no spend. Recommend a separate `RetrievalRate` on `ScenarioScore`, present only under `--tool-search on`, rather than a nullable third rate — a field meaningful half the time gets misread. | step 6 only |
 
 A and B are one run and answer each other. Do them as the first thing in step 3, before writing the provider.
+
+> **A and B are settled — see the 2 August entry.** A is `gpt-5.6-luna`; B stays a promise, scoped to `effort: low`. C is still open and still costs nothing. The sequencing note above stands corrected too: the run needed the provider to exist first.
 
 ---
 
