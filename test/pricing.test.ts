@@ -4,8 +4,10 @@ import { describe, it } from 'node:test';
 import { analyse } from '../src/analyser/index.js';
 import { loadManifestFromFile } from '../src/adapters/mcp/index.js';
 import { estimateUsd } from '../src/provider/anthropic.js';
-import { costOf, costOfTrials, estimateRunUsd, priceUsage } from '../src/provider/pricing.js';
+import { costOf, costOfTrials, estimateRunUsd, priceUsage, OUTPUT_TOKENS_PER_TRIAL } from '../src/provider/pricing.js';
 import { specFor, type ModelSpec } from '../src/provider/models.js';
+import { mergeEstimates } from '../src/cli.js';
+import type { CostEstimate } from '../src/provider/contract.js';
 import { injectDecoys } from '../src/mutator/index.js';
 
 const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
@@ -142,21 +144,21 @@ describe('the preflight estimate', () => {
     const prefix = 34_000;
 
     const oneTrial = estimateUsd('claude-haiku-4-5', prefix, 1)!;
-    const plainInput = priceUsage(spec, { inputTokens: prefix, outputTokens: 80 });
+    const plainInput = priceUsage(spec, { inputTokens: prefix, outputTokens: OUTPUT_TOKENS_PER_TRIAL });
 
     // 1.25× on the first trial. Small on one trial, and the same class of error
     // the meter above guards against: an estimate that is quietly under.
     assert.ok(oneTrial > plainInput, 'the first trial writes the cache and bills at the write rate');
     assertUsd(
       oneTrial,
-      priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheCreationInputTokens: prefix }),
+      priceUsage(spec, { inputTokens: 0, outputTokens: OUTPUT_TOKENS_PER_TRIAL, cacheCreationInputTokens: prefix }),
     );
   });
 
   it('prices every trial after the first as a cache read', () => {
     const spec = specFor('claude-haiku-4-5')!;
     const prefix = 34_000;
-    const read = priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheReadInputTokens: prefix });
+    const read = priceUsage(spec, { inputTokens: 0, outputTokens: OUTPUT_TOKENS_PER_TRIAL, cacheReadInputTokens: prefix });
 
     const ten = estimateUsd('claude-haiku-4-5', prefix, 10)!;
     const one = estimateUsd('claude-haiku-4-5', prefix, 1)!;
@@ -182,7 +184,7 @@ describe('the run estimate and the minimum cacheable prefix', () => {
   it('prices every trial at full input rate under the minimum', () => {
     const trials = 20;
     const tokens = minimum - 1;
-    const perTrial = priceUsage(spec, { inputTokens: tokens, outputTokens: 80 });
+    const perTrial = priceUsage(spec, { inputTokens: tokens, outputTokens: OUTPUT_TOKENS_PER_TRIAL });
 
     assert.equal(estimateRunUsd(spec, tokens, trials).toFixed(9), (trials * perTrial).toFixed(9));
   });
@@ -190,8 +192,8 @@ describe('the run estimate and the minimum cacheable prefix', () => {
   it('costs more than the cached assumption would have claimed', () => {
     const tokens = minimum - 1;
     const cached =
-      priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheCreationInputTokens: tokens }) +
-      19 * priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheReadInputTokens: tokens });
+      priceUsage(spec, { inputTokens: 0, outputTokens: OUTPUT_TOKENS_PER_TRIAL, cacheCreationInputTokens: tokens }) +
+      19 * priceUsage(spec, { inputTokens: 0, outputTokens: OUTPUT_TOKENS_PER_TRIAL, cacheReadInputTokens: tokens });
 
     assert.ok(estimateRunUsd(spec, tokens, 20) > cached);
   });
@@ -200,8 +202,8 @@ describe('the run estimate and the minimum cacheable prefix', () => {
     // One write plus N-1 reads, which is what the runner's warm-up guarantees.
     const tokens = minimum;
     const expected =
-      priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheCreationInputTokens: tokens }) +
-      19 * priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheReadInputTokens: tokens });
+      priceUsage(spec, { inputTokens: 0, outputTokens: OUTPUT_TOKENS_PER_TRIAL, cacheCreationInputTokens: tokens }) +
+      19 * priceUsage(spec, { inputTokens: 0, outputTokens: OUTPUT_TOKENS_PER_TRIAL, cacheReadInputTokens: tokens });
 
     assert.equal(estimateRunUsd(spec, tokens, 20).toFixed(9), expected.toFixed(9));
   });
@@ -213,7 +215,7 @@ describe('the run estimate and the minimum cacheable prefix', () => {
     const tokens = 10_000;
     const perTrial = priceUsage(openai, {
       inputTokens: 0,
-      outputTokens: 80,
+      outputTokens: OUTPUT_TOKENS_PER_TRIAL,
       cacheCreationInputTokens: tokens,
     });
 
@@ -246,5 +248,41 @@ describe('pricing a model id the API resolved', () => {
 
   it('stays undefined when neither id is known', () => {
     assert.equal(costOfTrials('who-knows-1', [usage], 'who-knows-2'), undefined);
+  });
+});
+
+describe('one estimate from several surfaces', () => {
+  // A mutation session runs a different surface per run, and `inject-decoys`
+  // grows the manifest on purpose. Pricing `runs` copies of the clean surface
+  // under-reported the first live session by 26%.
+  const leg = (inputTokensPerTrial: number, totalTrials: number, estimatedUsd?: number): CostEstimate => ({
+    model: 'claude-haiku-4-5',
+    inputTokensPerTrial,
+    totalTrials,
+    ...(estimatedUsd === undefined ? {} : { estimatedUsd }),
+  });
+
+  it('sums the cost across legs rather than scaling the first', () => {
+    const merged = mergeEstimates([leg(1000, 20, 0.1), leg(4000, 10, 0.2)], 30);
+
+    assert.equal(merged.estimatedUsd, 0.30000000000000004);
+    assert.equal(merged.totalTrials, 30);
+  });
+
+  it('weights tokens per trial by trials, so it multiplies back to the total', () => {
+    // An unweighted mean would print 2500 — a manifest size no run here has,
+    // and one that does not reconstruct the summed cost.
+    const merged = mergeEstimates([leg(1000, 20, 0.1), leg(4000, 10, 0.2)], 30);
+
+    assert.equal(merged.inputTokensPerTrial, 2000);
+  });
+
+  it('drops the cost entirely when any leg could not be priced', () => {
+    // A partial sum is a number below the bill, which is the one direction
+    // this project treats as a defect rather than a rounding choice.
+    const merged = mergeEstimates([leg(1000, 20, 0.1), leg(4000, 10)], 30);
+
+    assert.equal(merged.estimatedUsd, undefined);
+    assert.ok(!('estimatedUsd' in merged), 'absent, not present-and-undefined');
   });
 });

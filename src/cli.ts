@@ -24,6 +24,7 @@ import type { CostEstimate, Provider, ProviderChoice } from './provider/index.js
 import {
   BASELINE_RUNS,
   DEFAULT_MUTANTS,
+  exercisedItems,
   planMutants,
   runMutation,
   type MutationProgress,
@@ -45,7 +46,7 @@ import { formatMutationReport } from './report/mutation.js';
 import { formatAnalysis } from './report/table.js';
 import { runEval, totalTrials } from './runner/index.js';
 import type { RunProgress } from './runner/index.js';
-import type { CiGates, EvalConfig, GateResult, Severity, SurfaceKind, TrialResult } from './types.js';
+import type { CiGates, EvalConfig, GateResult, Severity, Surface, SurfaceKind, TrialResult } from './types.js';
 
 /** Duplicated from `package.json`; the schema-freeze test asserts they match. */
 export const VERSION = '0.1.0';
@@ -258,7 +259,7 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
   const presentation = adapterFor(surface.kind).present(surface, mode !== undefined ? { mode } : {});
 
   const trials = totalTrials(config);
-  const estimate = await preflight(provider, config, presentation, trials, json);
+  const estimate = await preflight(provider, config, [{ presentation, trials }], json);
 
   if (values['dry-run'] === true) {
     if (!json) process.stderr.write(pc.dim('  --dry-run: nothing was spent.\n\n'));
@@ -356,6 +357,7 @@ async function mutate(
   const mutants = planMutants(surface, {
     ...(values.operators ? { operators: (values.operators as string).split(',').map((id) => id.trim()) } : {}),
     limit: parsePositive(values.mutants as string | undefined, '--mutants') ?? DEFAULT_MUTANTS,
+    exercised: exercisedItems(config),
   });
 
   if (mutants.length === 0) {
@@ -365,8 +367,19 @@ async function mutate(
   }
 
   const runs = BASELINE_RUNS + mutants.length;
-  const trials = totalTrials(config) * runs;
-  const estimate = await preflight(provider, config, presentation, trials, json, 'mutate', runs);
+  const perRun = totalTrials(config);
+
+  // Every run is a different surface, so every run has a different per-trial
+  // cost. Pricing `runs` copies of the clean one under-reported the first live
+  // session by 26% — `inject-decoys` alone cost 1.9× a clean run, because
+  // growing the manifest is the operator's entire purpose.
+  const present = (s: Surface) => adapterFor(s.kind).present(s, mode !== undefined ? { mode } : {});
+  const legs = [
+    { presentation, trials: perRun * BASELINE_RUNS },
+    ...mutants.map((mutant) => ({ presentation: present(mutant.apply(surface)), trials: perRun })),
+  ];
+
+  const estimate = await preflight(provider, config, legs, json, 'mutate', runs);
 
   if (values['dry-run'] === true) {
     if (!json) {
@@ -461,21 +474,32 @@ function override<K extends string>(key: K, value: number | undefined): Record<K
   return value === undefined ? {} : ({ [key]: value } as Record<K, number>);
 }
 
-/** Price the run before spending, using the free token-counting endpoint. */
+/**
+ * Price the work before spending, using the free token-counting endpoint.
+ *
+ * Takes one leg per distinct surface rather than one presentation, because a
+ * mutation session does not run the same surface `runs` times: `inject-decoys`
+ * deliberately grows the manifest, and pricing it at the clean surface's rate
+ * under-reported the first live session's bill by 26%.
+ */
 async function preflight(
   provider: Provider,
   config: EvalConfig,
-  presentation: Presentation,
-  trials: number,
+  legs: ReadonlyArray<{ presentation: Presentation; trials: number }>,
   json: boolean,
   command = 'run',
   runs = 1,
 ): Promise<CostEstimate | undefined> {
   if (!provider.estimate) return undefined;
 
+  const trials = legs.reduce((total, leg) => total + leg.trials, 0);
+
   let estimate: CostEstimate;
   try {
-    estimate = await provider.estimate(presentation, config.scenarios, trials);
+    const each = await Promise.all(
+      legs.map((leg) => provider.estimate!(leg.presentation, config.scenarios, leg.trials)),
+    );
+    estimate = mergeEstimates(each, trials);
   } catch (error) {
     // Missing credentials are the one estimate failure worth stopping for:
     // every trial would fail the same way a moment later.
@@ -506,6 +530,29 @@ async function preflight(
       `  ${pc.bold('estimate')}  ${cost}\n\n`,
   );
   return estimate;
+}
+
+/**
+ * One estimate from several, one per surface the session will run.
+ *
+ * `inputTokensPerTrial` becomes the trial-weighted mean, because that is the
+ * only single number that multiplies back out to the total the cost was summed
+ * from. An unweighted mean would print a manifest size no run actually has.
+ *
+ * The cost is absent unless *every* leg priced, since a partial sum is a number
+ * lower than the bill — the one direction this project treats as a defect.
+ */
+export function mergeEstimates(each: readonly CostEstimate[], totalTrials: number): CostEstimate {
+  const first = each[0]!;
+  const weighted = each.reduce((sum, leg) => sum + leg.inputTokensPerTrial * leg.totalTrials, 0);
+  const priced = each.every((leg) => leg.estimatedUsd !== undefined);
+
+  return {
+    model: first.model,
+    totalTrials,
+    inputTokensPerTrial: Math.round(weighted / totalTrials),
+    ...(priced ? { estimatedUsd: each.reduce((sum, leg) => sum + leg.estimatedUsd!, 0) } : {}),
+  };
 }
 
 async function confirm(): Promise<boolean> {

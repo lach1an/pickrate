@@ -140,6 +140,8 @@ export function sumUsage(usages: Iterable<TrialUsage>): TrialUsage {
  * whether the preflight therefore has to become a range is open (decision B) and
  * is a user-facing promise, so it is not being decided by default here.
  *
+ * See `OUTPUT_TOKENS_PER_TRIAL` for what the allowance is and how it was set.
+ *
  * Below the model's minimum cacheable prefix, no cache assumption applies at
  * all: a prefix under the line silently does not cache — no error, no entry — so
  * every trial pays full input rate. This is the same fact the runner's
@@ -161,12 +163,23 @@ export function sumUsage(usages: Iterable<TrialUsage>): TrialUsage {
  *   bound. Over-stating is a confirmation someone accepts; under-stating is a
  *   bill they did not agree to.
  */
+/**
+ * The output allowance a preflight assumes per trial.
+ *
+ * Measured rather than guessed, and exported so the tests cannot re-hardcode
+ * it: it sat at 80 through two live sessions that spent 105/trial and
+ * 150/trial, and that gap alone was the whole difference between a $3.54
+ * estimate and a $3.98 bill. Set to the larger of the two, because
+ * over-stating is a confirmation someone accepts and under-stating is a bill
+ * they did not agree to.
+ */
+export const OUTPUT_TOKENS_PER_TRIAL = 150;
+
 export function estimateRunUsd(
   spec: ModelSpec,
   inputTokensPerTrial: number,
   totalTrials: number,
 ): number {
-  const OUTPUT_TOKENS_PER_TRIAL = 80;
   const write = (tokens: number): TrialUsage => ({
     inputTokens: 0,
     outputTokens: OUTPUT_TOKENS_PER_TRIAL,
