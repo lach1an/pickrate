@@ -124,7 +124,12 @@ export async function runEval(
 
   const usage = totalUsage(trialsByScenario);
   // Priced per trial and summed, never off the total — a long-context meter reads per request.
-  const costUsd = costOfTrials(model, results.map((trial) => trial.usage));
+  // The alias is the pricing fallback: a dated snapshot has no table entry of its own.
+  const costUsd = costOfTrials(
+    model,
+    results.map((trial) => trial.usage),
+    provider.model,
+  );
 
   return {
     source: surface.source,

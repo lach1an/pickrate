@@ -220,3 +220,31 @@ describe('the run estimate and the minimum cacheable prefix', () => {
     assert.equal(estimateRunUsd(openai, tokens, 20).toFixed(9), (20 * perTrial).toFixed(9));
   });
 });
+
+describe('pricing a model id the API resolved', () => {
+  const usage = { inputTokens: 1000, outputTokens: 100 };
+
+  it('has no entry for a dated snapshot on its own', () => {
+    assert.equal(specFor('claude-haiku-4-5-20251001'), undefined);
+  });
+
+  it('falls back to the alias that was requested', () => {
+    // Otherwise every run against a default model loses its cost line.
+    assert.equal(
+      costOf('claude-haiku-4-5-20251001', usage, 'claude-haiku-4-5'),
+      costOf('claude-haiku-4-5', usage),
+    );
+  });
+
+  it('prefers the resolved id when it does have an entry', () => {
+    // The fallback is a last resort, never an override.
+    assert.equal(
+      costOf('claude-opus-5', usage, 'claude-haiku-4-5'),
+      costOf('claude-opus-5', usage),
+    );
+  });
+
+  it('stays undefined when neither id is known', () => {
+    assert.equal(costOfTrials('who-knows-1', [usage], 'who-knows-2'), undefined);
+  });
+});

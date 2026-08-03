@@ -1,4 +1,6 @@
 import pc from 'picocolors';
+import type { ReasoningConfig } from '../types.js';
+import { specFor } from './models.js';
 
 /**
  * The parts of the measurement instrument that must not vary by provider.
@@ -47,6 +49,20 @@ export const SYSTEM_PROMPT =
  * irreducible variance source, which is the premise anyway.
  */
 export const EFFORT = 'low';
+
+/**
+ * The reasoning config a model actually gets, which is not the same on every model.
+ *
+ * Sending an effort parameter to a model without the control is a 400 on both
+ * providers, and reporting one it never received claims a regime the request did
+ * not carry. An unknown id falls back to the vendor's current shape, matching
+ * `capabilitiesFor`.
+ */
+export function reasoningFor(model: string): ReasoningConfig {
+  return (specFor(model)?.reasoning ?? 'effort-scale') === 'effort-scale'
+    ? { mode: 'effort', effort: EFFORT }
+    : { mode: 'none' };
+}
 
 /** Missing or unusable credentials produce SDK messages that don't say what to do. */
 export class CredentialError extends Error {

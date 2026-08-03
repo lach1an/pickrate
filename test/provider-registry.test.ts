@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { providerFor, PROVIDER_IDS } from '../src/provider/index.js';
-import { CANDIDATE_MODELS } from '../src/provider/openai.js';
+import { DEFAULT_MODEL } from '../src/provider/openai.js';
 
 /**
  * Which provider serves a model id.
@@ -58,18 +58,41 @@ describe('provider detection', () => {
     assert.throws(() => providerFor({ model: 'opus-5' }), /Cannot tell which provider/);
   });
 
-  it('refuses to invent an OpenAI default model', () => {
-    // Decision A is unsettled: every current tier reasons by default and
-    // reasoning bills as output, so the nominally cheap tier is not necessarily
-    // the cheap one. A default picked to fill this gap would become the model
-    // every published comparison quietly ran on.
+  it('defaults to the tier decision A measured, not to a tier name', () => {
+    // Settled by one run rather than by picking the cheapest-sounding id, and
+    // priced: luna spent less per trial than the Anthropic default while terra
+    // cost 2.45× luna and scored worse. Changing this changes what every
+    // published comparison ran on, so it is asserted rather than left implicit.
+    assert.equal(providerFor({ provider: 'openai' }).model, DEFAULT_MODEL);
+    assert.equal(DEFAULT_MODEL, 'gpt-5.6-luna');
+  });
+});
+
+describe('--provider against a model that contradicts it', () => {
+  it('refuses rather than sending the id to the wrong API', () => {
+    // The live shape: --provider openai over a config whose defaults.model is a
+    // Claude id. Sending it is a 400 on every trial of the run.
     assert.throws(
-      () => providerFor({ provider: 'openai' }),
-      (error: Error) => {
-        assert.match(error.message, /--model/);
-        for (const model of CANDIDATE_MODELS) assert.match(error.message, new RegExp(model));
-        return true;
-      },
+      () => providerFor({ provider: 'openai', model: 'claude-haiku-4-5' }),
+      /served by anthropic, but --provider says openai/,
     );
+  });
+
+  it('refuses in the other direction too', () => {
+    assert.throws(
+      () => providerFor({ provider: 'anthropic', model: 'gpt-5.6-luna' }),
+      /served by openai, but --provider says anthropic/,
+    );
+  });
+
+  it('refuses on the table and never on the naming convention', () => {
+    // A prefix is a guess; refusing on it would break the escape hatch above,
+    // where --provider has to win for a model too new to have an entry.
+    assert.equal(providerFor({ provider: 'anthropic', model: 'gpt-6-unreleased' }).id, 'anthropic');
+    assert.equal(providerFor({ provider: 'openai', model: 'ft:custom-thing' }).model, 'ft:custom-thing');
+  });
+
+  it('leaves an agreeing pair alone', () => {
+    assert.equal(providerFor({ provider: 'openai', model: 'gpt-5.6-terra' }).model, 'gpt-5.6-terra');
   });
 });
