@@ -1,5 +1,9 @@
 import { AnthropicProvider, DEFAULT_MODEL, PROVIDER_ID as ANTHROPIC } from './anthropic.js';
-import { CANDIDATE_MODELS, OpenAIProvider, PROVIDER_ID as OPENAI } from './openai.js';
+import {
+  DEFAULT_MODEL as OPENAI_DEFAULT_MODEL,
+  OpenAIProvider,
+  PROVIDER_ID as OPENAI,
+} from './openai.js';
 import type { Provider } from './contract.js';
 import { specFor } from './models.js';
 
@@ -52,22 +56,47 @@ export function providerFor(choice: ProviderChoice = {}): Provider {
     );
   }
 
+  if (provider !== undefined) refuseContradiction(provider, model);
+
   const id = provider ?? inferProvider(model);
 
-  if (id === OPENAI) {
-    if (model === undefined) {
-      throw new Error(
-        `The openai provider has no default model yet — pass --model.\n` +
-          `  Candidates: ${CANDIDATE_MODELS.join(', ')}.\n` +
-          `  Which tier is the right counterpart to a cheap Claude model is an open\n` +
-          `  measurement decision (decision A), and a default chosen to fill this gap\n` +
-          `  would become the model every published comparison quietly ran on.`,
-      );
-    }
-    return new OpenAIProvider({ model });
-  }
+  if (id === OPENAI) return new OpenAIProvider({ model: model ?? OPENAI_DEFAULT_MODEL });
 
   return new AnthropicProvider(model !== undefined ? { model } : {});
+}
+
+/**
+ * `--provider` settles an *ambiguous* id; it never reassigns an unambiguous one.
+ *
+ * The common shape is `--provider openai` against a config whose `defaults.model`
+ * is a Claude id, and both silent readings are wrong: sending that id to the
+ * other provider is a 400 on every trial, and quietly swapping in the provider's
+ * default measures a model the config does not name and reports it as a run of
+ * that config.
+ *
+ * Only the **table** contradicts, never the naming convention. A prefix is a
+ * guess and refusing on a guess would break the escape hatch `--provider` exists
+ * for: a model too new to have an entry stays overridable, and one with an entry
+ * is a fact that a flag cannot reassign.
+ */
+function refuseContradiction(provider: string, model: string | undefined): void {
+  if (model === undefined) return;
+
+  const owner = specFor(model)?.provider;
+  if (owner === undefined || owner === provider) return;
+
+  throw new Error(
+    `Model '${model}' is served by ${owner}, but --provider says ${provider}.\n` +
+      `  Pass --model with an id ${provider} serves, or drop --provider to use ${owner}.\n` +
+      `  ${provider === OPENAI ? `The ${OPENAI} default is ${OPENAI_DEFAULT_MODEL}.` : `The ${ANTHROPIC} default is ${DEFAULT_MODEL}.`}`,
+  );
+}
+
+/** Naming conventions only, and undefined where they say nothing. */
+function prefixProvider(model: string): string | undefined {
+  if (model.startsWith('claude-')) return ANTHROPIC;
+  if (model.startsWith('gpt-')) return OPENAI;
+  return undefined;
 }
 
 /**
@@ -82,8 +111,8 @@ function inferProvider(model: string | undefined): string {
   const spec = specFor(model);
   if (spec !== undefined) return spec.provider;
 
-  if (model.startsWith('claude-')) return ANTHROPIC;
-  if (model.startsWith('gpt-')) return OPENAI;
+  const byPrefix = prefixProvider(model);
+  if (byPrefix !== undefined) return byPrefix;
 
   throw new Error(
     `Cannot tell which provider serves model '${model}'.\n` +

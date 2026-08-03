@@ -19,21 +19,36 @@ export const PRICES: Record<string, ModelPrice> = Object.fromEntries(
 );
 
 /**
+ * The table entry to price against, preferring what actually ran.
+ *
+ * A resolved dated snapshot is not in the table while its alias is, so pricing
+ * only the reported id drops the cost line from every run made against an alias
+ * — which is every run on a default model.
+ */
+function pricingSpec(model: string, requested?: string): ModelSpec | undefined {
+  return specFor(model) ?? (requested !== undefined ? specFor(requested) : undefined);
+}
+
+/**
  * Cost of **one request's** usage, or undefined when the model has no entry.
  *
  * One request, deliberately: the long-context meter is a property of a single
  * request, so handing this a total summed across a hundred trials would trip
  * the threshold on every run. Use `costOfTrials` for a whole run.
  */
-export function costOf(model: string, usage: TrialUsage): number | undefined {
-  const spec = specFor(model);
+export function costOf(model: string, usage: TrialUsage, requested?: string): number | undefined {
+  const spec = pricingSpec(model, requested);
   if (spec === undefined) return undefined;
   return priceUsage(spec, usage);
 }
 
 /** Total cost of a run: every trial priced on its own, then summed. */
-export function costOfTrials(model: string, usages: Iterable<TrialUsage>): number | undefined {
-  const spec = specFor(model);
+export function costOfTrials(
+  model: string,
+  usages: Iterable<TrialUsage>,
+  requested?: string,
+): number | undefined {
+  const spec = pricingSpec(model, requested);
   if (spec === undefined) return undefined;
 
   let total = 0;

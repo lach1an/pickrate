@@ -20,6 +20,10 @@
  * and the scenario prompt and report a difference that is mostly not the thing
  * under test.
  *
+ * The floor is the *envelope* — the same presentation with the surface emptied —
+ * because tool scaffolding and a skills dispatch tool are fixed costs that do
+ * not scale with the manifest. See step 0b in the implementation plan.
+ *
  * The result belongs in `plans/multi-provider-implementation.md` (step 0b) and,
  * if the error is large, in `inspect`'s own copy. Only carry a correction factor
  * if the error turns out to be *consistent*: a factor applied over a variable
@@ -29,8 +33,10 @@ import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { analyse } from '../src/analyser/index.js';
+import { countItemTokens } from '../src/analyser/tokens.js';
 import { adapterFor, loadSurface } from '../src/adapters/index.js';
 import type { Presentation } from '../src/adapters/contract.js';
+import type { Surface, SurfaceItem, SurfaceKind } from '../src/types.js';
 import { DEFAULT_MODEL } from '../src/provider/anthropic.js';
 import { specFor } from '../src/provider/models.js';
 
@@ -74,6 +80,23 @@ const MODELS = process.env.PICKRATE_MODELS?.split(',') ?? [
 
 /** One prompt, held constant, so it cancels out of the difference. */
 const PROMPT = 'hello';
+
+/** One stand-in item per kind: a truly empty surface has no scaffolding to measure, and skills refuse to present one. */
+const MINIMAL: Record<SurfaceKind, SurfaceItem> = {
+  mcp: { kind: 'tool', name: 'a', inputSchema: { type: 'object', properties: {} }, raw: {} },
+  skills: { kind: 'skill', name: 'a', path: 'a/SKILL.md', body: '', frontmatter: {}, raw: {} },
+};
+
+/** The presentation with the manifest replaced by one minimal item — everything the adapter adds regardless. */
+function envelopeOf(surface: Surface): Pick<Presentation, 'tools' | 'systemSuffix'> & { local: number } {
+  const item = MINIMAL[surface.kind];
+  const presented = adapterFor(surface.kind).present({ ...surface, items: [item] });
+  return {
+    tools: presented.tools,
+    ...(presented.systemSuffix !== undefined ? { systemSuffix: presented.systemSuffix } : {}),
+    local: countItemTokens(item),
+  };
+}
 
 const anthropic = new Anthropic();
 let openai: OpenAI | undefined;
@@ -136,14 +159,22 @@ console.log('Counting is free and separately rate-limited; this makes a handful 
 
 for (const model of MODELS) {
   console.log(`model: ${model} (${specFor(model)?.provider ?? 'unknown provider'})`);
-  console.log('  ' + 'target'.padEnd(26), 'local'.padStart(8), 'actual'.padStart(8), 'delta'.padStart(9));
+  console.log(
+    '  ' + 'target'.padEnd(26),
+    'local'.padStart(8),
+    'actual'.padStart(8),
+    'delta'.padStart(9),
+    'envelope'.padStart(10),
+  );
 
   // One provider being unreachable must not take the other's rows down with it.
   // A balance check can gate a free endpoint — Anthropic's does, OpenAI's does
   // not — so which halves of this table are obtainable varies by account, and a
   // partial table is still worth writing down.
+  let bare: number;
   try {
-    await count(model, { tools: [] });
+    // Doubles as the reachability check: no tools, no surface, no scaffolding.
+    bare = await count(model, { tools: [] });
   } catch (error) {
     console.log(`  skipped: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}\n`);
     continue;
@@ -155,9 +186,10 @@ for (const model of MODELS) {
     const local = analyse(surface).tokens.total;
 
     const withSurface = await count(model, presentation);
-    // The floor: the same request with nothing of the surface in it. Whatever
-    // the endpoint charges for an empty envelope is not the manifest's cost.
-    const withoutSurface = await count(model, { tools: [] });
+    // The floor: the same presentation with the manifest emptied out. What the
+    // adapter and the provider add regardless is not the manifest's cost.
+    const envelope = envelopeOf(surface);
+    const withoutSurface = (await count(model, envelope)) - envelope.local;
     const actual = withSurface - withoutSurface;
 
     const delta = ((local - actual) / actual) * 100;
@@ -167,13 +199,16 @@ for (const model of MODELS) {
       String(local).padStart(8),
       String(actual).padStart(8),
       `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%`.padStart(9),
+      String(withoutSurface - bare).padStart(10),
     );
   }
   console.log();
 }
 
 console.log(
-  'A negative delta is an under-count: the surface costs more than inspect says.\n' +
+  'delta is the error on the manifest alone; envelope is the fixed cost of the\n' +
+    'presentation itself, which inspect does not count and which does not scale.\n' +
+    'A negative delta is an under-count: the surface costs more than inspect says.\n' +
     'Compare the two models before writing anything down — they are on different\n' +
     'tokenisers, and a gap between them is a number inspect cannot pick offline.\n' +
     'Only carry a correction factor if the error is consistent across both.',

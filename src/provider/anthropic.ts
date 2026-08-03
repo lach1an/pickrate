@@ -12,14 +12,11 @@ import type {
 } from './contract.js';
 import { capabilitiesOf, specFor } from './models.js';
 import { estimateRunUsd } from './pricing.js';
-import { CredentialError, EFFORT, SYSTEM_PROMPT } from './prompt.js';
+import { CredentialError, EFFORT, SYSTEM_PROMPT, reasoningFor } from './prompt.js';
 
 export const PROVIDER_ID = 'anthropic';
 export const DEFAULT_MODEL = 'claude-haiku-4-5';
 const ENV_VAR = 'ANTHROPIC_API_KEY';
-
-/** What the request asks for, recorded on every report. */
-const REASONING: ReasoningConfig = { mode: 'effort', effort: EFFORT };
 
 /** Eager: the model is handed the whole surface. See the regime notes below. */
 const TOOL_SEARCH: ToolSearchState = 'off';
@@ -96,9 +93,12 @@ export class AnthropicProvider implements Provider {
   }
 
   regime(presentation: Presentation): Regime {
+    // Per model, not per provider: the same provider serves models with and without the control.
+    const reasoning = reasoningFor(this.model);
+
     return {
       provider: this.id,
-      reasoning: REASONING,
+      reasoning,
       toolSearch: TOOL_SEARCH,
       // Excludes tool declarations and systemSuffix (derived from the surface) —
       // hashing them would give every mutant its own regime.
@@ -106,7 +106,7 @@ export class AnthropicProvider implements Provider {
         provider: this.id,
         declarations: DECLARATION_FORM,
         system: SYSTEM_PROMPT,
-        reasoning: REASONING,
+        reasoning,
         toolSearch: TOOL_SEARCH,
       }),
     };
@@ -162,26 +162,40 @@ export class AnthropicProvider implements Provider {
     };
   }
 
-  /**
-   * The request shape is the measurement instrument — every choice here is
-   * load-bearing, so they are all justified in place.
-   */
   private request(
     presentation: Presentation,
     prompt: string,
   ): Anthropic.MessageCreateParamsNonStreaming {
-    return {
-      model: this.model,
-      // Budgeted generously — a cap tight enough to bound spend is a cap that truncates.
-      max_tokens: 1024,
-      // Mandatory: a forced tool_choice makes restraint scenarios (expect.tool: null) impossible.
-      tool_choice: { type: 'auto' },
-      // effort, not thinking:disabled — disabling thinking can make tool calls arrive
-      // as visible text instead of tool_use blocks, which would score as false restraint.
-      output_config: { effort: EFFORT },
-      ...promptShape(presentation, prompt),
-    };
+    return requestFor(this.model, presentation, prompt);
   }
+}
+
+/**
+ * The request shape is the measurement instrument — every choice here is
+ * load-bearing, so they are all justified in place.
+ *
+ * Exported and pure for the same reason `trialFrom` is: the parameters that
+ * vary by model are only assertable without a client, key or network.
+ */
+export function requestFor(
+  model: string,
+  presentation: Presentation,
+  prompt: string,
+): Anthropic.MessageCreateParamsNonStreaming {
+  const reasoning = reasoningFor(model);
+
+  return {
+    model,
+    // Budgeted generously — a cap tight enough to bound spend is a cap that truncates.
+    max_tokens: 1024,
+    // Mandatory: a forced tool_choice makes restraint scenarios (expect.tool: null) impossible.
+    tool_choice: { type: 'auto' },
+    // effort, not thinking:disabled — disabling thinking can make tool calls arrive
+    // as visible text instead of tool_use blocks, which would score as false restraint.
+    // Only where the model has the control: sending it to one without is a 400 on every trial.
+    ...(reasoning.mode === 'effort' ? { output_config: { effort: EFFORT } } : {}),
+    ...promptShape(presentation, prompt),
+  };
 }
 
 // One response → one trial. Pure, so it's testable without a client, key, or network.

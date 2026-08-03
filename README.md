@@ -79,6 +79,7 @@ Directories are ambiguous — an MCP server project is a directory too — so a 
 --fail-on <severity>    exit 1 on findings at or above this level
                         (error | warn | info | none, default: none)
 --disable <ids>         comma-separated rule ids to skip
+--adapter <id>          force mcp or skills, skipping target detection
 --header <k=v>          extra HTTP header, repeatable
 --env <k=v>             extra env var for stdio servers, repeatable
 --timeout <ms>          connection budget (default: 30000)
@@ -93,7 +94,7 @@ npx pickrate run examples/filesystem.yaml --dry-run   # price it, spend nothing
 npx pickrate run examples/filesystem.yaml
 ```
 
-This one needs model access — `ANTHROPIC_API_KEY`, or an `ant auth login` profile.
+This one needs model access — `ANTHROPIC_API_KEY` or an `ant auth login` profile by default, `OPENAI_API_KEY` for the other provider.
 
 ```
 pickrate run  npx -y @modelcontextprotocol/server-filesystem /tmp
@@ -118,15 +119,32 @@ pickrate run  npx -y @modelcontextprotocol/server-filesystem /tmp
 
 **Every assertion is a pass rate over N trials, never a boolean.** Tool selection is non-deterministic; a binary assertion passes on Tuesday and fails on Wednesday and teaches you nothing. Three things are scored separately, because they're different bugs with different fixes: **selection** (right tool?), **arguments** (right values?), and **restraint** (correctly called *nothing*?).
 
+### Providers
+
+Two providers ship: `anthropic` and `openai`. Which one serves a run is **inferred from the model id**, so `--provider` is only there to settle what a prefix can't. An id matching neither convention is an error naming both — never a silent fallback, because the alternative is measuring one model and reporting it as the one you asked for.
+
+```bash
+pickrate run pickrate.yaml                                        # claude-*, inferred
+pickrate run pickrate.yaml --provider openai --model gpt-5.6-luna
+```
+
+Credentials are read from the environment and never taken as a flag — an argument lands in the command trace.
+
+**`--provider openai` defaults to `gpt-5.6-luna`, and the default was measured rather than assumed.** The worry was that a tier which reasons by default would not be cheap, since reasoning bills as output. On 80 trials at the effort pickrate sends, it spent fewer output tokens per trial than the Claude default and cost 2.5× less for the same run — while the tier above it cost 2.45× more and scored *worse* on the scenario that discriminates. Tier price does not order selection accuracy, which is the whole reason to measure rather than pick.
+
+Scores from two providers are not comparable *as scores*. The provider is part of the regime hash printed beside every run, and `--baseline` refuses a comparison across it — the same discipline that refuses one across models or presentation modes. What the pair is good for is the gap between them on a surface held constant.
+
 ### `run` options
 
 ```
 --dry-run               print the cost estimate and exit without spending
 --yes                   skip the cost confirmation
 --model <id>            override defaults.model
+--provider <id>         anthropic | openai (inferred from the model id)
 --trials <n>            override defaults.trials
 --target <t>            override the config's target
 --replay <file>         replay recorded trials instead of calling a model
+--record <file>         save this run's raw trials, replayable offline later
 --presentation <mode>   skills only: skill-tool (default) or pseudo-tool
 --baseline <file>       compare against a stored JSON report
 --max-regression <0..1> worst per-scenario drop allowed, against --baseline
@@ -239,6 +257,18 @@ pickrate mutate  ./git-server.json
 | `inject-decoys` | Context bloat degrades selection, so token cost is behavioural and not just a bill |
 
 All three apply to MCP and skills alike, which is what the adapter split bought.
+
+### `mutate` options
+
+```
+--mutants <n>           how many defects to inject (default: 3)
+--operators <ids>       comma-separated, from the table above (default: all)
+--min-score <0..1>      exit 1 when the mutation score falls below this
+```
+
+Plus `--dry-run`, `--yes`, `--model`, `--provider`, `--trials` and `--presentation`, which mean what they mean under `run`.
+
+`--mutants` defaults to 3 rather than the spec's three per operator: nine mutants plus the two clean baselines is over a thousand trials before anyone has read the output once. How many it takes before the score is stable is a thing to measure, not to guess.
 
 ### The noise floor
 
@@ -369,6 +399,11 @@ Outputs: `exit-code`, `report-path`, and `score` — the mutation score for `mut
 | `missing-param-description` | mcp | warn | Where the model invents formats |
 | `enum-candidate` | mcp | info | Free-text param whose description lists its valid values |
 | `deep-schema` | mcp | info | Nesting the model will fill in wrong |
+| `public-cache-scope` | mcp | error | A credentialed catalogue declared `cacheScope: public` may be served to another tenant |
+| `unstable-list-order` | mcp | warn | Same tools, different order on two `tools/list` calls — invalidates the prompt cache behind them |
+| `missing-cache-ttl` | mcp | warn | No usable `ttlMs`, so clients re-fetch the catalogue instead of caching it |
+| `missing-cache-scope` | mcp | info | No `cacheScope`, which a conservative client reads as "do not cache" |
+| `legacy-protocol` | mcp | info | The server predates `2026-07-28`, so the cache checks were skipped rather than passed |
 | `unparseable-skill` | skills | error | Frontmatter that will not parse — the skill can never be selected |
 | `missing-skill-description` | skills | error | Resident in every request, selectable in none |
 | `skill-description-length` | skills | error | Past the hard 1024-character limit, the loader rejects the skill outright |
@@ -376,6 +411,10 @@ Outputs: `exit-code`, `report-path`, and `score` — the mutation score for `mut
 | `skill-description-no-triggers` | skills | info | Says what the skill *is*, never when to use it |
 
 Rules are pure functions — surface in, findings out. No network, no model. Keep it that way. Each declares the surfaces it applies to, and one that has nothing to say about a surface is skipped rather than run against an empty list: silence and "no findings" must not read the same.
+
+The three cache-metadata rules are **gated on the protocol revision**, because `ttlMs` and `cacheScope` only exist from `2026-07-28` and nearly every server in the wild today predates it — a lint that fires on all of them is a lint everybody turns off. `legacy-protocol` is the other side of that gate: it fires exactly when they were skipped, so that silence and a pass never read the same.
+
+`unstable-list-order` is deliberately **not** gated: a legacy server that reorders its tools costs exactly as much, since the manifest sits in front of every prompt and a changed order invalidates the cached prefix on every reconnect — no error, no warning, roughly 10× the tokens you budgeted. It takes two round trips to see, so the adapter makes the observation at load time and the rule only judges it. Absent is not `false` there: a captured manifest never re-listed anything, and a re-list that throws leaves the question open rather than claiming stability.
 
 For skills, the headline token figure is **routing cost only** — the name and description resident in every request. Bodies are reported on their own line, because they cost nothing until the skill triggers, and conflating the two hides the thing progressive disclosure exists to give you.
 
@@ -422,7 +461,7 @@ The mutation loop can't use recorded trials — they're indifferent to the surfa
 ```
 src/
   adapters/    target → surface → presentation
-    mcp/       speaks MCP — the ONLY place that imports the MCP SDK
+    mcp/       speaks MCP — the ONLY place that imports @modelcontextprotocol/client
     skills/    reads SKILL.md — node:fs and yaml, nothing else
   analyser/    static rules + token counting (M1)
   config/      pickrate.yaml parsing and validation
@@ -436,7 +475,11 @@ src/
   types.ts     the domain model everything else shares
 ```
 
-Two seams, isolated hard on purpose. The **adapters** because the MCP spec finalises `2026-07-28` (stateless, no handshake, new routing headers) and the SDKs will churn for a couple of quarters. The **provider** because the model is a swappable part of the measurement, and because everything downstream of it must stay testable with no API key.
+Two seams, isolated hard on purpose, and both have now been paid for.
+
+The **adapters**, because MCP's `2026-07-28` revision is published and shipped here: stateless, no `initialize` handshake, new routing headers, and cacheable list results. `src/adapters/mcp/index.ts` negotiates it against a server that offers it and falls back to the 2025 handshake against one that doesn't — and that is the whole of the change, one file, no downstream edits. It arrived as a *renamed package line* (`@modelcontextprotocol/client@2`, on `core@2`) rather than a version bump on the old one, which is exactly the kind of churn a seam is for. Publication is a publish date and not a switch-off, so both revisions are spoken and the cache lints stay gated on which one answered.
+
+The **provider**, because the model is a swappable part of the measurement — two of them ship now — and because everything downstream of it must stay testable with no API key.
 
 ## Licence
 
