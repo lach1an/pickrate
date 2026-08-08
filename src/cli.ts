@@ -19,8 +19,8 @@ import { readReportFile } from './ci/report-file.js';
 import { Exit, type ExitCode } from './exit.js';
 import { formatUsd } from './provider/pricing.js';
 import { ReplayProvider } from './provider/replay.js';
-import { CredentialError, providerFor, PROVIDER_IDS } from './provider/index.js';
-import type { CostEstimate, Provider, ProviderChoice } from './provider/index.js';
+import { CredentialError, prefixCaches, providerFor, PROVIDER_IDS } from './provider/index.js';
+import type { CacheBehaviour, CostEstimate, Provider, ProviderChoice } from './provider/index.js';
 import {
   BASELINE_RUNS,
   DEFAULT_MUTANTS,
@@ -262,7 +262,7 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
   const estimate = await preflight(provider, config, [{ presentation, trials }], json);
 
   if (values['dry-run'] === true) {
-    if (!json) process.stderr.write(pc.dim('  --dry-run: nothing was spent.\n\n'));
+    emitDryRun(estimate, json);
     return Exit.Ok;
   }
 
@@ -382,11 +382,7 @@ async function mutate(
   const estimate = await preflight(provider, config, legs, json, 'mutate', runs);
 
   if (values['dry-run'] === true) {
-    if (!json) {
-      process.stderr.write(
-        pc.dim(`  ${mutants.length} mutants over ${runs} runs. --dry-run: nothing was spent.\n\n`),
-      );
-    }
+    emitDryRun(estimate, json, `  ${mutants.length} mutants over ${runs} runs.`);
     return Exit.Ok;
   }
 
@@ -499,7 +495,14 @@ async function preflight(
     const each = await Promise.all(
       legs.map((leg) => provider.estimate!(leg.presentation, config.scenarios, leg.trials)),
     );
-    estimate = mergeEstimates(each, trials);
+    // Per leg, never on the merged mean: `mergeEstimates` averages surfaces of
+    // different sizes, and `inject-decoys` can clear the line when the clean
+    // surface does not. A verdict on the mean would describe no actual run.
+    const { cache } = provider.capabilitiesFor(provider.model);
+    estimate = {
+      ...mergeEstimates(each, trials),
+      ...uncachedNote(cache, each.map((leg) => leg.inputTokensPerTrial)),
+    };
   } catch (error) {
     // Missing credentials are the one estimate failure worth stopping for:
     // every trial would fail the same way a moment later.
@@ -524,12 +527,56 @@ async function preflight(
     `\n${pc.bold(`pickrate ${command}`)}  ${pc.dim(config.path)}\n` +
       `  ${pc.bold('model')}     ${estimate.model}\n` +
       pc.dim(`  manifest  ~${estimate.inputTokensPerTrial.toLocaleString()} input tokens per trial\n`) +
+      (estimate.uncached !== undefined ? pc.yellow(`            ${estimate.uncached}\n`) : '') +
       pc.dim(`  trials    ${trials} across ${config.scenarios.length} scenarios\n`) +
       // Each run is a different surface, so a different cached prefix.
       (runs > 1 ? pc.dim(`  runs      ${runs}, each writing its own prompt cache\n`) : '') +
       `  ${pc.bold('estimate')}  ${cost}\n\n`,
   );
   return estimate;
+}
+
+/**
+ * What `--dry-run` leaves behind.
+ *
+ * Under `--json` the estimate goes to *stdout*, because a dry run that printed
+ * nothing at all was the previous behaviour: `preflight` returns early in JSON
+ * mode and the human line here was gated on `!json`, so a pipeline asking what
+ * a run would cost got an empty stream and no error.
+ */
+function emitDryRun(estimate: CostEstimate | undefined, json: boolean, prefix = ''): void {
+  if (json) {
+    process.stdout.write(`${JSON.stringify(estimate ?? null, null, 2)}\n`);
+    return;
+  }
+  process.stderr.write(pc.dim(`${prefix}${prefix ? ' ' : '  '}--dry-run: nothing was spent.\n\n`));
+}
+
+/**
+ * Say when a prefix is too small to cache, and nothing when it is not.
+ *
+ * This is the single biggest lever on what a run costs and it is invisible
+ * otherwise: below the minimum a prefix silently does not cache — no error, no
+ * entry — so every trial pays full input rate. On the default model that line
+ * is 4096 tokens, the highest in the line-up, which is most small surfaces.
+ *
+ * It states the mechanism and stops. It is deliberately *not* advice: the
+ * remedy a reader might infer is "make the manifest bigger", and this is the
+ * tool whose entire argument is that manifests are already too big.
+ */
+export function uncachedNote(cache: CacheBehaviour, perLeg: number[]): { uncached?: string } {
+  const below = perLeg.filter((tokens) => !prefixCaches(cache, tokens));
+  if (below.length === 0 || cache.minimumPrefixTokens === undefined) return {};
+
+  const minimum = cache.minimumPrefixTokens.toLocaleString();
+  const scope =
+    below.length === perLeg.length
+      ? 'below'
+      : `${below.length} of ${perLeg.length} surfaces below`;
+
+  return {
+    uncached: `${scope} this model's ${minimum}-token cache minimum — no prefix caching, so every trial pays full input rate`,
+  };
 }
 
 /**

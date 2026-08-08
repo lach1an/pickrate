@@ -4,9 +4,9 @@ import { describe, it } from 'node:test';
 import { analyse } from '../src/analyser/index.js';
 import { loadManifestFromFile } from '../src/adapters/mcp/index.js';
 import { estimateUsd } from '../src/provider/anthropic.js';
-import { costOf, costOfTrials, estimateRunUsd, priceUsage, OUTPUT_TOKENS_PER_TRIAL } from '../src/provider/pricing.js';
+import { costOf, costOfTrials, estimateRunUsd, prefixCaches, priceUsage, OUTPUT_TOKENS_PER_TRIAL } from '../src/provider/pricing.js';
 import { specFor, type ModelSpec } from '../src/provider/models.js';
-import { mergeEstimates } from '../src/cli.js';
+import { mergeEstimates, uncachedNote } from '../src/cli.js';
 import type { CostEstimate } from '../src/provider/contract.js';
 import { injectDecoys } from '../src/mutator/index.js';
 
@@ -284,5 +284,82 @@ describe('one estimate from several surfaces', () => {
 
     assert.equal(merged.estimatedUsd, undefined);
     assert.ok(!('estimatedUsd' in merged), 'absent, not present-and-undefined');
+  });
+});
+
+describe('prefixCaches', () => {
+  /*
+   * One predicate behind three decisions that must agree: whether the runner
+   * warms a trial, whether the estimate assumes caching, and whether the
+   * preflight says so. They used to be two open-coded copies, and the only
+   * symptom of them drifting apart is a bill.
+   */
+  const cache = specFor('claude-haiku-4-5')!.cache;
+  const minimum = cache.minimumPrefixTokens!;
+
+  it('is false one token below the minimum and true exactly on it', () => {
+    // The boundary is the whole point: a prefix under the line silently does
+    // not cache — no error, no entry, nothing to notice.
+    assert.equal(prefixCaches(cache, minimum - 1), false);
+    assert.equal(prefixCaches(cache, minimum), true);
+  });
+
+  it('treats an absent minimum as "anything caches"', () => {
+    // Absent means the model states none, which is not the same as zero.
+    const { minimumPrefixTokens: _, ...stated } = cache;
+    assert.equal(prefixCaches(stated, 1), true);
+  });
+
+  it('is false for a model that does not cache at all, however big the prefix', () => {
+    assert.equal(prefixCaches({ population: 'none', writesBilled: false, readMultiplier: 1 }, 1e9), false);
+  });
+
+  it('agrees with the estimate it gates', () => {
+    // The extraction has to be provably a refactor: below the line every trial
+    // pays full rate, and 20 of them cost exactly 20 of one.
+    const spec = specFor('claude-haiku-4-5')!;
+    const below = minimum - 1;
+
+    assert.equal(prefixCaches(spec.cache, below), false);
+    assertUsd(
+      estimateRunUsd(spec, below, 20),
+      20 * priceUsage(spec, { inputTokens: below, outputTokens: OUTPUT_TOKENS_PER_TRIAL }),
+    );
+    assert.ok(estimateRunUsd(spec, minimum, 20) < estimateRunUsd(spec, below, 20), 'and above it, caching is cheaper');
+  });
+});
+
+describe('the preflight cache-minimum note', () => {
+  const cache = specFor('claude-haiku-4-5')!.cache;
+  const minimum = cache.minimumPrefixTokens!;
+
+  it('says nothing when the prefix caches', () => {
+    // Absent, not an empty string: silence is the normal case and must not
+    // render as a blank line under the manifest size.
+    assert.deepEqual(uncachedNote(cache, [minimum]), {});
+  });
+
+  it('explains the mechanism without recommending a bigger manifest', () => {
+    // pickrate's whole argument is that manifests are too big. A note a reader
+    // could act on by padding the surface would contradict the tool.
+    const { uncached } = uncachedNote(cache, [minimum - 1]);
+
+    assert.match(uncached!, /4,096-token cache minimum/);
+    assert.match(uncached!, /every trial pays full input rate/);
+    assert.doesNotMatch(uncached!, /add|increase|grow|larger|bigger|should/i);
+  });
+
+  it('counts legs rather than judging a mutation session on their mean', () => {
+    // `inject-decoys` can clear the line when the clean surface does not, and a
+    // verdict on the merged mean would describe a run that never happens.
+    assert.match(
+      uncachedNote(cache, [minimum - 1, minimum - 1, minimum * 2]).uncached!,
+      /^2 of 3 surfaces below/,
+    );
+  });
+
+  it('stays quiet for a model that states no minimum', () => {
+    const { minimumPrefixTokens: _, ...stated } = cache;
+    assert.deepEqual(uncachedNote(stated, [1]), {});
   });
 });

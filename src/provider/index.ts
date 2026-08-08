@@ -7,7 +7,7 @@ import {
 import type { Provider } from './contract.js';
 import { specFor } from './models.js';
 
-export { costOf, costOfTrials, priceUsage, estimateRunUsd, PRICES, EMPTY_USAGE, addUsage, sumUsage, formatUsd } from './pricing.js';
+export { costOf, costOfTrials, priceUsage, estimateRunUsd, prefixCaches, OUTPUT_TOKENS_PER_TRIAL, PRICES, EMPTY_USAGE, addUsage, sumUsage, formatUsd } from './pricing.js';
 export type { ModelPrice } from './pricing.js';
 export { MODELS, specFor, capabilitiesOf } from './models.js';
 export type { LongContextMeter, ModelSpec } from './models.js';

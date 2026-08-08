@@ -1,4 +1,5 @@
 import type { TrialUsage } from '../types.js';
+import type { CacheBehaviour } from './contract.js';
 import { MODELS, specFor, type ModelSpec } from './models.js';
 
 export interface ModelPrice {
@@ -132,6 +133,35 @@ export function sumUsage(usages: Iterable<TrialUsage>): TrialUsage {
 }
 
 /**
+ * The output allowance a preflight assumes per trial.
+ *
+ * Measured rather than guessed, and exported so the tests cannot re-hardcode
+ * it: it sat at 80 through two live sessions that spent 105/trial and
+ * 150/trial, and that gap alone was the whole difference between a $3.54
+ * estimate and a $3.98 bill. Set to the larger of the two, because
+ * over-stating is a confirmation someone accepts and under-stating is a bill
+ * they did not agree to.
+ */
+export const OUTPUT_TOKENS_PER_TRIAL = 150;
+
+/**
+ * Does a prefix this size cache at all on this model?
+ *
+ * The one place that question is answered. It drives three decisions that must
+ * agree — whether the runner warms a trial, whether the estimate assumes any
+ * caching, and whether the preflight says so out loud — and the only symptom of
+ * them disagreeing is a bill. Below `minimumPrefixTokens` a prefix silently
+ * does not cache: no error, no entry, nothing to notice.
+ *
+ * An absent minimum means the model states none, which is not the same as zero
+ * and is treated as "anything caches".
+ */
+export function prefixCaches(cache: CacheBehaviour, inputTokensPerTrial: number): boolean {
+  if (cache.population === 'none') return false;
+  return cache.minimumPrefixTokens === undefined || inputTokensPerTrial >= cache.minimumPrefixTokens;
+}
+
+/**
  * A whole run's estimated cost, priced through `priceUsage` per request.
  *
  * Output tokens are a flat allowance — a tool call is small, and the estimate
@@ -163,18 +193,6 @@ export function sumUsage(usages: Iterable<TrialUsage>): TrialUsage {
  *   bound. Over-stating is a confirmation someone accepts; under-stating is a
  *   bill they did not agree to.
  */
-/**
- * The output allowance a preflight assumes per trial.
- *
- * Measured rather than guessed, and exported so the tests cannot re-hardcode
- * it: it sat at 80 through two live sessions that spent 105/trial and
- * 150/trial, and that gap alone was the whole difference between a $3.54
- * estimate and a $3.98 bill. Set to the larger of the two, because
- * over-stating is a confirmation someone accepts and under-stating is a bill
- * they did not agree to.
- */
-export const OUTPUT_TOKENS_PER_TRIAL = 150;
-
 export function estimateRunUsd(
   spec: ModelSpec,
   inputTokensPerTrial: number,
@@ -187,11 +205,7 @@ export function estimateRunUsd(
     cacheReadInputTokens: 0,
   });
 
-  const minimum = spec.cache.minimumPrefixTokens;
-  if (
-    spec.cache.population === 'none' ||
-    (minimum !== undefined && inputTokensPerTrial < minimum)
-  ) {
+  if (!prefixCaches(spec.cache, inputTokensPerTrial)) {
     return (
       totalTrials *
       priceUsage(spec, {
