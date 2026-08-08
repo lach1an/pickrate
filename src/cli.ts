@@ -19,11 +19,12 @@ import { readReportFile } from './ci/report-file.js';
 import { Exit, type ExitCode } from './exit.js';
 import { formatUsd } from './provider/pricing.js';
 import { ReplayProvider } from './provider/replay.js';
-import { CredentialError, providerFor, PROVIDER_IDS } from './provider/index.js';
-import type { CostEstimate, Provider, ProviderChoice } from './provider/index.js';
+import { CredentialError, prefixCaches, providerFor, PROVIDER_IDS } from './provider/index.js';
+import type { CacheBehaviour, CostEstimate, Provider, ProviderChoice } from './provider/index.js';
 import {
   BASELINE_RUNS,
   DEFAULT_MUTANTS,
+  exercisedItems,
   planMutants,
   runMutation,
   type MutationProgress,
@@ -45,7 +46,7 @@ import { formatMutationReport } from './report/mutation.js';
 import { formatAnalysis } from './report/table.js';
 import { runEval, totalTrials } from './runner/index.js';
 import type { RunProgress } from './runner/index.js';
-import type { CiGates, EvalConfig, GateResult, Severity, SurfaceKind, TrialResult } from './types.js';
+import type { CiGates, EvalConfig, GateResult, Severity, Surface, SurfaceKind, TrialResult } from './types.js';
 
 /** Duplicated from `package.json`; the schema-freeze test asserts they match. */
 export const VERSION = '0.1.0';
@@ -258,10 +259,10 @@ async function run(configPath: string, loadOptions: LoadOptions, values: Values)
   const presentation = adapterFor(surface.kind).present(surface, mode !== undefined ? { mode } : {});
 
   const trials = totalTrials(config);
-  const estimate = await preflight(provider, config, presentation, trials, json);
+  const estimate = await preflight(provider, config, [{ presentation, trials }], json);
 
   if (values['dry-run'] === true) {
-    if (!json) process.stderr.write(pc.dim('  --dry-run: nothing was spent.\n\n'));
+    emitDryRun(estimate, json);
     return Exit.Ok;
   }
 
@@ -356,6 +357,7 @@ async function mutate(
   const mutants = planMutants(surface, {
     ...(values.operators ? { operators: (values.operators as string).split(',').map((id) => id.trim()) } : {}),
     limit: parsePositive(values.mutants as string | undefined, '--mutants') ?? DEFAULT_MUTANTS,
+    exercised: exercisedItems(config),
   });
 
   if (mutants.length === 0) {
@@ -365,15 +367,22 @@ async function mutate(
   }
 
   const runs = BASELINE_RUNS + mutants.length;
-  const trials = totalTrials(config) * runs;
-  const estimate = await preflight(provider, config, presentation, trials, json, 'mutate', runs);
+  const perRun = totalTrials(config);
+
+  // Every run is a different surface, so every run has a different per-trial
+  // cost. Pricing `runs` copies of the clean one under-reported the first live
+  // session by 26% — `inject-decoys` alone cost 1.9× a clean run, because
+  // growing the manifest is the operator's entire purpose.
+  const present = (s: Surface) => adapterFor(s.kind).present(s, mode !== undefined ? { mode } : {});
+  const legs = [
+    { presentation, trials: perRun * BASELINE_RUNS },
+    ...mutants.map((mutant) => ({ presentation: present(mutant.apply(surface)), trials: perRun })),
+  ];
+
+  const estimate = await preflight(provider, config, legs, json, 'mutate', runs);
 
   if (values['dry-run'] === true) {
-    if (!json) {
-      process.stderr.write(
-        pc.dim(`  ${mutants.length} mutants over ${runs} runs. --dry-run: nothing was spent.\n\n`),
-      );
-    }
+    emitDryRun(estimate, json, `  ${mutants.length} mutants over ${runs} runs.`);
     return Exit.Ok;
   }
 
@@ -461,21 +470,39 @@ function override<K extends string>(key: K, value: number | undefined): Record<K
   return value === undefined ? {} : ({ [key]: value } as Record<K, number>);
 }
 
-/** Price the run before spending, using the free token-counting endpoint. */
+/**
+ * Price the work before spending, using the free token-counting endpoint.
+ *
+ * Takes one leg per distinct surface rather than one presentation, because a
+ * mutation session does not run the same surface `runs` times: `inject-decoys`
+ * deliberately grows the manifest, and pricing it at the clean surface's rate
+ * under-reported the first live session's bill by 26%.
+ */
 async function preflight(
   provider: Provider,
   config: EvalConfig,
-  presentation: Presentation,
-  trials: number,
+  legs: ReadonlyArray<{ presentation: Presentation; trials: number }>,
   json: boolean,
   command = 'run',
   runs = 1,
 ): Promise<CostEstimate | undefined> {
   if (!provider.estimate) return undefined;
 
+  const trials = legs.reduce((total, leg) => total + leg.trials, 0);
+
   let estimate: CostEstimate;
   try {
-    estimate = await provider.estimate(presentation, config.scenarios, trials);
+    const each = await Promise.all(
+      legs.map((leg) => provider.estimate!(leg.presentation, config.scenarios, leg.trials)),
+    );
+    // Per leg, never on the merged mean: `mergeEstimates` averages surfaces of
+    // different sizes, and `inject-decoys` can clear the line when the clean
+    // surface does not. A verdict on the mean would describe no actual run.
+    const { cache } = provider.capabilitiesFor(provider.model);
+    estimate = {
+      ...mergeEstimates(each, trials),
+      ...uncachedNote(cache, each.map((leg) => leg.inputTokensPerTrial)),
+    };
   } catch (error) {
     // Missing credentials are the one estimate failure worth stopping for:
     // every trial would fail the same way a moment later.
@@ -500,12 +527,79 @@ async function preflight(
     `\n${pc.bold(`pickrate ${command}`)}  ${pc.dim(config.path)}\n` +
       `  ${pc.bold('model')}     ${estimate.model}\n` +
       pc.dim(`  manifest  ~${estimate.inputTokensPerTrial.toLocaleString()} input tokens per trial\n`) +
+      (estimate.uncached !== undefined ? pc.yellow(`            ${estimate.uncached}\n`) : '') +
       pc.dim(`  trials    ${trials} across ${config.scenarios.length} scenarios\n`) +
       // Each run is a different surface, so a different cached prefix.
       (runs > 1 ? pc.dim(`  runs      ${runs}, each writing its own prompt cache\n`) : '') +
       `  ${pc.bold('estimate')}  ${cost}\n\n`,
   );
   return estimate;
+}
+
+/**
+ * What `--dry-run` leaves behind.
+ *
+ * Under `--json` the estimate goes to *stdout*, because a dry run that printed
+ * nothing at all was the previous behaviour: `preflight` returns early in JSON
+ * mode and the human line here was gated on `!json`, so a pipeline asking what
+ * a run would cost got an empty stream and no error.
+ */
+function emitDryRun(estimate: CostEstimate | undefined, json: boolean, prefix = ''): void {
+  if (json) {
+    process.stdout.write(`${JSON.stringify(estimate ?? null, null, 2)}\n`);
+    return;
+  }
+  process.stderr.write(pc.dim(`${prefix}${prefix ? ' ' : '  '}--dry-run: nothing was spent.\n\n`));
+}
+
+/**
+ * Say when a prefix is too small to cache, and nothing when it is not.
+ *
+ * This is the single biggest lever on what a run costs and it is invisible
+ * otherwise: below the minimum a prefix silently does not cache — no error, no
+ * entry — so every trial pays full input rate. On the default model that line
+ * is 4096 tokens, the highest in the line-up, which is most small surfaces.
+ *
+ * It states the mechanism and stops. It is deliberately *not* advice: the
+ * remedy a reader might infer is "make the manifest bigger", and this is the
+ * tool whose entire argument is that manifests are already too big.
+ */
+export function uncachedNote(cache: CacheBehaviour, perLeg: number[]): { uncached?: string } {
+  const below = perLeg.filter((tokens) => !prefixCaches(cache, tokens));
+  if (below.length === 0 || cache.minimumPrefixTokens === undefined) return {};
+
+  const minimum = cache.minimumPrefixTokens.toLocaleString();
+  const scope =
+    below.length === perLeg.length
+      ? 'below'
+      : `${below.length} of ${perLeg.length} surfaces below`;
+
+  return {
+    uncached: `${scope} this model's ${minimum}-token cache minimum — no prefix caching, so every trial pays full input rate`,
+  };
+}
+
+/**
+ * One estimate from several, one per surface the session will run.
+ *
+ * `inputTokensPerTrial` becomes the trial-weighted mean, because that is the
+ * only single number that multiplies back out to the total the cost was summed
+ * from. An unweighted mean would print a manifest size no run actually has.
+ *
+ * The cost is absent unless *every* leg priced, since a partial sum is a number
+ * lower than the bill — the one direction this project treats as a defect.
+ */
+export function mergeEstimates(each: readonly CostEstimate[], totalTrials: number): CostEstimate {
+  const first = each[0]!;
+  const weighted = each.reduce((sum, leg) => sum + leg.inputTokensPerTrial * leg.totalTrials, 0);
+  const priced = each.every((leg) => leg.estimatedUsd !== undefined);
+
+  return {
+    model: first.model,
+    totalTrials,
+    inputTokensPerTrial: Math.round(weighted / totalTrials),
+    ...(priced ? { estimatedUsd: each.reduce((sum, leg) => sum + leg.estimatedUsd!, 0) } : {}),
+  };
 }
 
 async function confirm(): Promise<boolean> {

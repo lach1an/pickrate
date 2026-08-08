@@ -4,8 +4,10 @@ import { describe, it } from 'node:test';
 import { analyse } from '../src/analyser/index.js';
 import { loadManifestFromFile } from '../src/adapters/mcp/index.js';
 import { estimateUsd } from '../src/provider/anthropic.js';
-import { costOf, costOfTrials, estimateRunUsd, priceUsage } from '../src/provider/pricing.js';
+import { costOf, costOfTrials, estimateRunUsd, prefixCaches, priceUsage, OUTPUT_TOKENS_PER_TRIAL } from '../src/provider/pricing.js';
 import { specFor, type ModelSpec } from '../src/provider/models.js';
+import { mergeEstimates, uncachedNote } from '../src/cli.js';
+import type { CostEstimate } from '../src/provider/contract.js';
 import { injectDecoys } from '../src/mutator/index.js';
 
 const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
@@ -142,21 +144,21 @@ describe('the preflight estimate', () => {
     const prefix = 34_000;
 
     const oneTrial = estimateUsd('claude-haiku-4-5', prefix, 1)!;
-    const plainInput = priceUsage(spec, { inputTokens: prefix, outputTokens: 80 });
+    const plainInput = priceUsage(spec, { inputTokens: prefix, outputTokens: OUTPUT_TOKENS_PER_TRIAL });
 
     // 1.25× on the first trial. Small on one trial, and the same class of error
     // the meter above guards against: an estimate that is quietly under.
     assert.ok(oneTrial > plainInput, 'the first trial writes the cache and bills at the write rate');
     assertUsd(
       oneTrial,
-      priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheCreationInputTokens: prefix }),
+      priceUsage(spec, { inputTokens: 0, outputTokens: OUTPUT_TOKENS_PER_TRIAL, cacheCreationInputTokens: prefix }),
     );
   });
 
   it('prices every trial after the first as a cache read', () => {
     const spec = specFor('claude-haiku-4-5')!;
     const prefix = 34_000;
-    const read = priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheReadInputTokens: prefix });
+    const read = priceUsage(spec, { inputTokens: 0, outputTokens: OUTPUT_TOKENS_PER_TRIAL, cacheReadInputTokens: prefix });
 
     const ten = estimateUsd('claude-haiku-4-5', prefix, 10)!;
     const one = estimateUsd('claude-haiku-4-5', prefix, 1)!;
@@ -182,7 +184,7 @@ describe('the run estimate and the minimum cacheable prefix', () => {
   it('prices every trial at full input rate under the minimum', () => {
     const trials = 20;
     const tokens = minimum - 1;
-    const perTrial = priceUsage(spec, { inputTokens: tokens, outputTokens: 80 });
+    const perTrial = priceUsage(spec, { inputTokens: tokens, outputTokens: OUTPUT_TOKENS_PER_TRIAL });
 
     assert.equal(estimateRunUsd(spec, tokens, trials).toFixed(9), (trials * perTrial).toFixed(9));
   });
@@ -190,8 +192,8 @@ describe('the run estimate and the minimum cacheable prefix', () => {
   it('costs more than the cached assumption would have claimed', () => {
     const tokens = minimum - 1;
     const cached =
-      priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheCreationInputTokens: tokens }) +
-      19 * priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheReadInputTokens: tokens });
+      priceUsage(spec, { inputTokens: 0, outputTokens: OUTPUT_TOKENS_PER_TRIAL, cacheCreationInputTokens: tokens }) +
+      19 * priceUsage(spec, { inputTokens: 0, outputTokens: OUTPUT_TOKENS_PER_TRIAL, cacheReadInputTokens: tokens });
 
     assert.ok(estimateRunUsd(spec, tokens, 20) > cached);
   });
@@ -200,8 +202,8 @@ describe('the run estimate and the minimum cacheable prefix', () => {
     // One write plus N-1 reads, which is what the runner's warm-up guarantees.
     const tokens = minimum;
     const expected =
-      priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheCreationInputTokens: tokens }) +
-      19 * priceUsage(spec, { inputTokens: 0, outputTokens: 80, cacheReadInputTokens: tokens });
+      priceUsage(spec, { inputTokens: 0, outputTokens: OUTPUT_TOKENS_PER_TRIAL, cacheCreationInputTokens: tokens }) +
+      19 * priceUsage(spec, { inputTokens: 0, outputTokens: OUTPUT_TOKENS_PER_TRIAL, cacheReadInputTokens: tokens });
 
     assert.equal(estimateRunUsd(spec, tokens, 20).toFixed(9), expected.toFixed(9));
   });
@@ -213,10 +215,151 @@ describe('the run estimate and the minimum cacheable prefix', () => {
     const tokens = 10_000;
     const perTrial = priceUsage(openai, {
       inputTokens: 0,
-      outputTokens: 80,
+      outputTokens: OUTPUT_TOKENS_PER_TRIAL,
       cacheCreationInputTokens: tokens,
     });
 
     assert.equal(estimateRunUsd(openai, tokens, 20).toFixed(9), (20 * perTrial).toFixed(9));
+  });
+});
+
+describe('pricing a model id the API resolved', () => {
+  const usage = { inputTokens: 1000, outputTokens: 100 };
+
+  it('has no entry for a dated snapshot on its own', () => {
+    assert.equal(specFor('claude-haiku-4-5-20251001'), undefined);
+  });
+
+  it('falls back to the alias that was requested', () => {
+    // Otherwise every run against a default model loses its cost line.
+    assert.equal(
+      costOf('claude-haiku-4-5-20251001', usage, 'claude-haiku-4-5'),
+      costOf('claude-haiku-4-5', usage),
+    );
+  });
+
+  it('prefers the resolved id when it does have an entry', () => {
+    // The fallback is a last resort, never an override.
+    assert.equal(
+      costOf('claude-opus-5', usage, 'claude-haiku-4-5'),
+      costOf('claude-opus-5', usage),
+    );
+  });
+
+  it('stays undefined when neither id is known', () => {
+    assert.equal(costOfTrials('who-knows-1', [usage], 'who-knows-2'), undefined);
+  });
+});
+
+describe('one estimate from several surfaces', () => {
+  // A mutation session runs a different surface per run, and `inject-decoys`
+  // grows the manifest on purpose. Pricing `runs` copies of the clean surface
+  // under-reported the first live session by 26%.
+  const leg = (inputTokensPerTrial: number, totalTrials: number, estimatedUsd?: number): CostEstimate => ({
+    model: 'claude-haiku-4-5',
+    inputTokensPerTrial,
+    totalTrials,
+    ...(estimatedUsd === undefined ? {} : { estimatedUsd }),
+  });
+
+  it('sums the cost across legs rather than scaling the first', () => {
+    const merged = mergeEstimates([leg(1000, 20, 0.1), leg(4000, 10, 0.2)], 30);
+
+    assert.equal(merged.estimatedUsd, 0.30000000000000004);
+    assert.equal(merged.totalTrials, 30);
+  });
+
+  it('weights tokens per trial by trials, so it multiplies back to the total', () => {
+    // An unweighted mean would print 2500 — a manifest size no run here has,
+    // and one that does not reconstruct the summed cost.
+    const merged = mergeEstimates([leg(1000, 20, 0.1), leg(4000, 10, 0.2)], 30);
+
+    assert.equal(merged.inputTokensPerTrial, 2000);
+  });
+
+  it('drops the cost entirely when any leg could not be priced', () => {
+    // A partial sum is a number below the bill, which is the one direction
+    // this project treats as a defect rather than a rounding choice.
+    const merged = mergeEstimates([leg(1000, 20, 0.1), leg(4000, 10)], 30);
+
+    assert.equal(merged.estimatedUsd, undefined);
+    assert.ok(!('estimatedUsd' in merged), 'absent, not present-and-undefined');
+  });
+});
+
+describe('prefixCaches', () => {
+  /*
+   * One predicate behind three decisions that must agree: whether the runner
+   * warms a trial, whether the estimate assumes caching, and whether the
+   * preflight says so. They used to be two open-coded copies, and the only
+   * symptom of them drifting apart is a bill.
+   */
+  const cache = specFor('claude-haiku-4-5')!.cache;
+  const minimum = cache.minimumPrefixTokens!;
+
+  it('is false one token below the minimum and true exactly on it', () => {
+    // The boundary is the whole point: a prefix under the line silently does
+    // not cache — no error, no entry, nothing to notice.
+    assert.equal(prefixCaches(cache, minimum - 1), false);
+    assert.equal(prefixCaches(cache, minimum), true);
+  });
+
+  it('treats an absent minimum as "anything caches"', () => {
+    // Absent means the model states none, which is not the same as zero.
+    const { minimumPrefixTokens: _, ...stated } = cache;
+    assert.equal(prefixCaches(stated, 1), true);
+  });
+
+  it('is false for a model that does not cache at all, however big the prefix', () => {
+    assert.equal(prefixCaches({ population: 'none', writesBilled: false, readMultiplier: 1 }, 1e9), false);
+  });
+
+  it('agrees with the estimate it gates', () => {
+    // The extraction has to be provably a refactor: below the line every trial
+    // pays full rate, and 20 of them cost exactly 20 of one.
+    const spec = specFor('claude-haiku-4-5')!;
+    const below = minimum - 1;
+
+    assert.equal(prefixCaches(spec.cache, below), false);
+    assertUsd(
+      estimateRunUsd(spec, below, 20),
+      20 * priceUsage(spec, { inputTokens: below, outputTokens: OUTPUT_TOKENS_PER_TRIAL }),
+    );
+    assert.ok(estimateRunUsd(spec, minimum, 20) < estimateRunUsd(spec, below, 20), 'and above it, caching is cheaper');
+  });
+});
+
+describe('the preflight cache-minimum note', () => {
+  const cache = specFor('claude-haiku-4-5')!.cache;
+  const minimum = cache.minimumPrefixTokens!;
+
+  it('says nothing when the prefix caches', () => {
+    // Absent, not an empty string: silence is the normal case and must not
+    // render as a blank line under the manifest size.
+    assert.deepEqual(uncachedNote(cache, [minimum]), {});
+  });
+
+  it('explains the mechanism without recommending a bigger manifest', () => {
+    // pickrate's whole argument is that manifests are too big. A note a reader
+    // could act on by padding the surface would contradict the tool.
+    const { uncached } = uncachedNote(cache, [minimum - 1]);
+
+    assert.match(uncached!, /4,096-token cache minimum/);
+    assert.match(uncached!, /every trial pays full input rate/);
+    assert.doesNotMatch(uncached!, /add|increase|grow|larger|bigger|should/i);
+  });
+
+  it('counts legs rather than judging a mutation session on their mean', () => {
+    // `inject-decoys` can clear the line when the clean surface does not, and a
+    // verdict on the merged mean would describe a run that never happens.
+    assert.match(
+      uncachedNote(cache, [minimum - 1, minimum - 1, minimum * 2]).uncached!,
+      /^2 of 3 surfaces below/,
+    );
+  });
+
+  it('stays quiet for a model that states no minimum', () => {
+    const { minimumPrefixTokens: _, ...stated } = cache;
+    assert.deepEqual(uncachedNote(stated, [1]), {});
   });
 });

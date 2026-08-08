@@ -17,7 +17,7 @@ import {
   SCHEMA_VERSION,
 } from '../src/report/json.js';
 import { runEval } from '../src/runner/index.js';
-import { scoreMutation } from '../src/mutator/index.js';
+import { blankDescription, scoreMutation } from '../src/mutator/index.js';
 import type { EvalReport } from '../src/types.js';
 
 /**
@@ -156,6 +156,46 @@ describe('JSON schema', () => {
       'mutants',
       'usage',
       'costUsd',
+    ]);
+  });
+
+  it('freezes the baseline and mutant-record shapes a consumer reads per row', async () => {
+    // The top-level assertion above runs with no mutants, so it never sees
+    // these. Adding `worstDrop`/`scenarioNoise` to the kill rule went straight
+    // through it — additions are free, but they should still be *seen*.
+    const report = await replayReport();
+    const surface = await loadManifestFromFile(fixture('git-server.json'));
+    const mutant = blankDescription.enumerate(surface)[0]!;
+    const mutation = scoreMutation({
+      baselineRuns: [report, report],
+      mutants: [{ mutant, report }],
+      trials: 5,
+      startedAt: report.startedAt,
+      durationMs: 1,
+    });
+    const json = JSON.parse(formatMutationReportJson(mutation));
+
+    assert.deepEqual(Object.keys(json.baseline), [
+      'runs',
+      'score',
+      'noise',
+      'observedNoise',
+      'scenarioNoise',
+    ]);
+    assert.deepEqual(Object.keys(json.mutants[0]), [
+      'id',
+      'operator',
+      'targets',
+      'describe',
+      'score',
+      'delta',
+      'worstDrop',
+      // `worstScenario` sits here when something dropped. Absent, not null:
+      // a mutant that moved nothing has no worst scenario to name.
+      'killed',
+      'restraintOnly',
+      'perScenario',
+      'report',
     ]);
   });
 

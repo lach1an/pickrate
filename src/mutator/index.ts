@@ -48,6 +48,14 @@ export interface PlanOptions {
   operators?: string[];
   /** Maximum mutants to produce. Fewer is fine — the surface may not offer more. */
   limit?: number;
+  /**
+   * Item names some scenario expects, which get damaged first.
+   *
+   * Omitted means no preference, which is what every caller did before the
+   * 3 August session spent half a $4 budget on `alloydb-basics` — an orphan no
+   * scenario selects, so all three of its mutants were guaranteed survivors.
+   */
+  exercised?: Iterable<string>;
 }
 
 /**
@@ -67,7 +75,7 @@ export function planMutants(surface: Surface, options: PlanOptions = {}): Mutant
   const queues = chosen
     // Skipped rather than run to produce nothing, so it doesn't count against the score.
     .filter((operator) => operator.appliesTo.includes(surface.kind))
-    .map((operator) => operator.enumerate(surface));
+    .map((operator) => prioritise(operator.enumerate(surface), options.exercised));
 
   const plan: Mutant[] = [];
   for (let round = 0; plan.length < limit; round++) {
@@ -81,6 +89,29 @@ export function planMutants(surface: Surface, options: PlanOptions = {}): Mutant
     if (plan.length === before) break; // every queue exhausted
   }
   return plan;
+}
+
+/**
+ * The same mutants, with the ones some scenario can see moved to the front.
+ *
+ * A stable partition, not a sort or a filter. Stable so the order within each
+ * half is still the operator's own surface order and the session stays
+ * reproducible without a seed; not a filter because a mutant on an untested
+ * item is still worth running once the tested ones are exhausted — a survivor
+ * naming an orphan is how "no scenario covers this" gets reported at all.
+ *
+ * A surface-wide operator like `inject-decoys` has no targets and is treated as
+ * exercised: it damages everything, so it cannot miss.
+ */
+function prioritise(mutants: Mutant[], exercised: Iterable<string> | undefined): Mutant[] {
+  if (exercised === undefined) return mutants;
+  const names = new Set(exercised);
+  if (names.size === 0) return mutants;
+
+  const hits = (mutant: Mutant) =>
+    mutant.targets.length === 0 || mutant.targets.some((target) => names.has(target));
+
+  return [...mutants.filter(hits), ...mutants.filter((mutant) => !hits(mutant))];
 }
 
 function selectOperators(ids: string[] | undefined): Operator[] {
@@ -120,7 +151,35 @@ export function baselineOf(runs: EvalReport[], trials: number): MutationBaseline
   const score = means.reduce((sum, m) => sum + m, 0) / means.length;
   const observedNoise = Math.max(...means) - Math.min(...means);
 
-  return { runs, score, noise: Math.max(observedNoise, minNoise(trials)), observedNoise };
+  return {
+    runs,
+    score,
+    noise: Math.max(observedNoise, minNoise(trials)),
+    observedNoise,
+    scenarioNoise: Math.max(widestScenarioGap(runs), minNoise(trials)),
+  };
+}
+
+/**
+ * The widest gap any one scenario showed across the clean runs.
+ *
+ * The floor for a worst-scenario drop has to be measured the same way the
+ * statistic is, or the comparison is between two different things: one noisy
+ * scenario out of sixteen swings far more than the mean of all sixteen does.
+ */
+function widestScenarioGap(runs: EvalReport[]): number {
+  const byId = new Map<string, number[]>();
+  for (const run of runs) {
+    for (const scenario of run.scenarios) {
+      byId.set(scenario.id, [...(byId.get(scenario.id) ?? []), scenario.score]);
+    }
+  }
+
+  let widest = 0;
+  for (const scores of byId.values()) {
+    widest = Math.max(widest, Math.max(...scores) - Math.min(...scores));
+  }
+  return widest;
 }
 
 /** Judge one mutant against the baseline. Pure. */
@@ -146,6 +205,14 @@ export function judgeMutant(
   const moved = perScenario.filter((s) => Math.abs(s.delta) > Number.EPSILON);
   const restraintById = new Map(report.scenarios.map((s) => [s.id, s.restraint]));
 
+  // Every scenario, not just the ones expecting a damaged item: the interesting
+  // failure is a *neighbour* stealing the selection, so the scenario that
+  // collapses is usually not the target's own.
+  const worst = perScenario.reduce<(typeof perScenario)[number] | undefined>(
+    (found, s) => (found === undefined || s.delta > found.delta ? s : found),
+    undefined,
+  );
+
   return {
     id: mutant.id,
     operator: mutant.operator,
@@ -153,7 +220,11 @@ export function judgeMutant(
     describe: mutant.describe,
     score,
     delta,
-    killed: delta > baseline.noise,
+    worstDrop: worst?.delta ?? 0,
+    // Absent rather than null when nothing dropped: there is no worst scenario
+    // to name, which is a different statement from "the worst one was fine".
+    ...(worst !== undefined && worst.delta > 0 ? { worstScenario: worst.id } : {}),
+    killed: (worst?.delta ?? 0) > baseline.scenarioNoise,
     restraintOnly: moved.length > 0 && moved.every((s) => restraintById.get(s.id) === true),
     perScenario,
     report,
@@ -253,7 +324,9 @@ export async function runMutation(
   const startedAt = new Date();
   const started = performance.now();
 
-  const mutants = options.mutants ?? planMutants(surface, options.plan ?? {});
+  const mutants =
+    options.mutants ??
+    planMutants(surface, { exercised: exercisedItems(config), ...(options.plan ?? {}) });
   const total = BASELINE_RUNS + mutants.length;
   const present = (target: Surface): Presentation =>
     adapterFor(target.kind).present(target, options.mode !== undefined ? { mode: options.mode } : {});
@@ -303,6 +376,20 @@ export function trialsPerRun(config: EvalConfig): number {
     (min, scenario) => Math.min(min, scenario.trials ?? config.defaults.trials),
     config.defaults.trials,
   );
+}
+
+/**
+ * Item names some scenario expects, for `PlanOptions.exercised`.
+ *
+ * Restraint scenarios (`tool: null`) name nothing, which is correct: they say
+ * what must *not* be selected, so they cannot make any item worth damaging.
+ */
+export function exercisedItems(config: EvalConfig): Set<string> {
+  const names = new Set<string>();
+  for (const scenario of config.scenarios) {
+    if (scenario.expect.tool !== null) names.add(scenario.expect.tool);
+  }
+  return names;
 }
 
 /** Scenario scores keyed by id — small helper for report formatting. */

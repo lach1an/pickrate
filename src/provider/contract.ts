@@ -21,6 +21,14 @@ export interface CostEstimate {
   /** Assumes every trial after the first reads the surface from cache. */
   estimatedUsd?: number;
   model: string;
+  /**
+   * Why no caching was assumed, when that is the case. Absent means it was.
+   *
+   * Carried on the estimate rather than printed at the call site so a `--json`
+   * consumer sees the same fact the terminal does — it is the largest single
+   * lever on the number beside it.
+   */
+  uncached?: string;
 }
 
 /**

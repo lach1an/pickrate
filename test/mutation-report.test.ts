@@ -66,7 +66,9 @@ describe('mutation report', () => {
   it('states the baseline and its noise floor above the verdicts', () => {
     const baseline = text.indexOf('baseline');
     assert.ok(baseline > 0 && baseline < text.indexOf('survived'));
-    assert.match(text, /noise floor 10%/);
+    // The bar is per-scenario, because that is the statistic the verdict is
+    // made on. A header quoting the mean floor would not explain any row.
+    assert.match(text, /must drop one scenario by 10%/);
     assert.match(text, /the two clean runs agreed exactly/);
   });
 

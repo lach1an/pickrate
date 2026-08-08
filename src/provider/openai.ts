@@ -13,27 +13,23 @@ import type {
 } from './contract.js';
 import { capabilitiesOf, specFor } from './models.js';
 import { estimateRunUsd } from './pricing.js';
-import { CredentialError, EFFORT, SYSTEM_PROMPT } from './prompt.js';
+import { CredentialError, EFFORT, SYSTEM_PROMPT, reasoningFor } from './prompt.js';
 
 export const PROVIDER_ID = 'openai';
 const ENV_VAR = 'OPENAI_API_KEY';
 
 /**
- * There is deliberately no `DEFAULT_MODEL` here.
+ * Settled by measurement, not by tier name — decision A, run 2026-08-02.
  *
- * Which tier is the right counterpart to a cheap Claude model is decision A in
- * `plans/multi-provider-implementation.md`, and it costs one calibration run to
- * settle: every current tier reasons by default and reasoning bills as output,
- * so the nominally cheap tier is not necessarily the cheap one. A default picked
- * to make the code compile is a measurement decision made by accident, and it
- * would then be the number every published comparison ran on. Until the run
- * happens, `--provider openai` without a model is an error that names the
- * candidates.
+ * The worry was that a nominally cheap tier reasoning by default would not be
+ * cheap, since reasoning bills as output. Measured at `effort: low` on 80 trials
+ * it is not what happens: luna spent fewer output tokens per trial than the
+ * Anthropic default (41 vs 72) and cost 2.5× less for the same run, while terra
+ * cost 2.45× luna and scored *worse* on the discriminating scenario. Paying more
+ * bought nothing here, so the counterpart to a cheap Claude model is the tier
+ * that matches it on list price. See `plans/multi-provider-implementation.md`.
  */
-export const CANDIDATE_MODELS = ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol'];
-
-/** What the request asks for, recorded on every report. */
-const REASONING: ReasoningConfig = { mode: 'effort', effort: EFFORT };
+export const DEFAULT_MODEL = 'gpt-5.6-luna';
 
 /** Eager: the model is handed the whole surface. `defer_loading` is step 6b. */
 const TOOL_SEARCH: ToolSearchState = 'off';
@@ -126,9 +122,12 @@ export class OpenAIProvider implements Provider {
   }
 
   regime(presentation: Presentation): Regime {
+    // Per model, not per provider: the same provider serves models with and without the control.
+    const reasoning = reasoningFor(this.model);
+
     return {
       provider: this.id,
-      reasoning: REASONING,
+      reasoning,
       toolSearch: TOOL_SEARCH,
       // Excludes tool declarations and systemSuffix (derived from the surface) —
       // hashing them would give every mutant its own regime.
@@ -136,7 +135,7 @@ export class OpenAIProvider implements Provider {
         provider: this.id,
         declarations: DECLARATION_FORM,
         system: SYSTEM_PROMPT,
-        reasoning: REASONING,
+        reasoning,
         toolSearch: TOOL_SEARCH,
       }),
     };
@@ -201,33 +200,44 @@ export class OpenAIProvider implements Provider {
     return specFor(model)?.cache ?? FALLBACK_CACHE;
   }
 
-  /**
-   * The request shape is the measurement instrument — every choice here is
-   * load-bearing, so they are all justified in place.
-   */
   private request(
     presentation: Presentation,
     prompt: string,
   ): OpenAI.Responses.ResponseCreateParamsNonStreaming {
-    const reasons = specFor(this.model)?.reasoning ?? 'effort-scale';
-
-    return {
-      model: this.model,
-      max_output_tokens: MAX_OUTPUT_TOKENS,
-      // Mandatory: a forced tool_choice makes restraint scenarios (expect.tool: null) impossible.
-      tool_choice: 'auto',
-      // Responses stores generated responses by default — trials must stay independent.
-      store: false,
-      // Only when the model has the parameter: sending `reasoning` to a tier without it is a 400.
-      ...(reasons === 'effort-scale' ? { reasoning: { effort: EFFORT } } : {}),
-      // Left at its default — over-calling is the failure mode under observation.
-      ...promptShape(presentation, prompt),
-    };
+    return requestFor(this.model, presentation, prompt);
   }
 
   async close(): Promise<void> {
     // Nothing to release: no persistent connection.
   }
+}
+
+/**
+ * The request shape is the measurement instrument — every choice here is
+ * load-bearing, so they are all justified in place.
+ *
+ * Exported and pure for the same reason `trialFrom` is: the parameters that
+ * vary by model are only assertable without a client, key or network.
+ */
+export function requestFor(
+  model: string,
+  presentation: Presentation,
+  prompt: string,
+): OpenAI.Responses.ResponseCreateParamsNonStreaming {
+  const reasoning = reasoningFor(model);
+
+  return {
+    model,
+    max_output_tokens: MAX_OUTPUT_TOKENS,
+    // Mandatory: a forced tool_choice makes restraint scenarios (expect.tool: null) impossible.
+    tool_choice: 'auto',
+    // Responses stores generated responses by default — trials must stay independent.
+    store: false,
+    // Only when the model has the parameter: sending `reasoning` to a tier without it is a 400.
+    ...(reasoning.mode === 'effort' ? { reasoning: { effort: EFFORT } } : {}),
+    // Left at its default — over-calling is the failure mode under observation.
+    ...promptShape(presentation, prompt),
+  };
 }
 
 // Standard cache shape for a model with no table entry. writesBilled: true is

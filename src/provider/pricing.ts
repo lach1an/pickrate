@@ -1,4 +1,5 @@
 import type { TrialUsage } from '../types.js';
+import type { CacheBehaviour } from './contract.js';
 import { MODELS, specFor, type ModelSpec } from './models.js';
 
 export interface ModelPrice {
@@ -19,21 +20,36 @@ export const PRICES: Record<string, ModelPrice> = Object.fromEntries(
 );
 
 /**
+ * The table entry to price against, preferring what actually ran.
+ *
+ * A resolved dated snapshot is not in the table while its alias is, so pricing
+ * only the reported id drops the cost line from every run made against an alias
+ * — which is every run on a default model.
+ */
+function pricingSpec(model: string, requested?: string): ModelSpec | undefined {
+  return specFor(model) ?? (requested !== undefined ? specFor(requested) : undefined);
+}
+
+/**
  * Cost of **one request's** usage, or undefined when the model has no entry.
  *
  * One request, deliberately: the long-context meter is a property of a single
  * request, so handing this a total summed across a hundred trials would trip
  * the threshold on every run. Use `costOfTrials` for a whole run.
  */
-export function costOf(model: string, usage: TrialUsage): number | undefined {
-  const spec = specFor(model);
+export function costOf(model: string, usage: TrialUsage, requested?: string): number | undefined {
+  const spec = pricingSpec(model, requested);
   if (spec === undefined) return undefined;
   return priceUsage(spec, usage);
 }
 
 /** Total cost of a run: every trial priced on its own, then summed. */
-export function costOfTrials(model: string, usages: Iterable<TrialUsage>): number | undefined {
-  const spec = specFor(model);
+export function costOfTrials(
+  model: string,
+  usages: Iterable<TrialUsage>,
+  requested?: string,
+): number | undefined {
+  const spec = pricingSpec(model, requested);
   if (spec === undefined) return undefined;
 
   let total = 0;
@@ -117,6 +133,35 @@ export function sumUsage(usages: Iterable<TrialUsage>): TrialUsage {
 }
 
 /**
+ * The output allowance a preflight assumes per trial.
+ *
+ * Measured rather than guessed, and exported so the tests cannot re-hardcode
+ * it: it sat at 80 through two live sessions that spent 105/trial and
+ * 150/trial, and that gap alone was the whole difference between a $3.54
+ * estimate and a $3.98 bill. Set to the larger of the two, because
+ * over-stating is a confirmation someone accepts and under-stating is a bill
+ * they did not agree to.
+ */
+export const OUTPUT_TOKENS_PER_TRIAL = 150;
+
+/**
+ * Does a prefix this size cache at all on this model?
+ *
+ * The one place that question is answered. It drives three decisions that must
+ * agree — whether the runner warms a trial, whether the estimate assumes any
+ * caching, and whether the preflight says so out loud — and the only symptom of
+ * them disagreeing is a bill. Below `minimumPrefixTokens` a prefix silently
+ * does not cache: no error, no entry, nothing to notice.
+ *
+ * An absent minimum means the model states none, which is not the same as zero
+ * and is treated as "anything caches".
+ */
+export function prefixCaches(cache: CacheBehaviour, inputTokensPerTrial: number): boolean {
+  if (cache.population === 'none') return false;
+  return cache.minimumPrefixTokens === undefined || inputTokensPerTrial >= cache.minimumPrefixTokens;
+}
+
+/**
  * A whole run's estimated cost, priced through `priceUsage` per request.
  *
  * Output tokens are a flat allowance — a tool call is small, and the estimate
@@ -124,6 +169,8 @@ export function sumUsage(usages: Iterable<TrialUsage>): TrialUsage {
  * bound, because reasoning bills as output and is not predictable from the input;
  * whether the preflight therefore has to become a range is open (decision B) and
  * is a user-facing promise, so it is not being decided by default here.
+ *
+ * See `OUTPUT_TOKENS_PER_TRIAL` for what the allowance is and how it was set.
  *
  * Below the model's minimum cacheable prefix, no cache assumption applies at
  * all: a prefix under the line silently does not cache — no error, no entry — so
@@ -151,7 +198,6 @@ export function estimateRunUsd(
   inputTokensPerTrial: number,
   totalTrials: number,
 ): number {
-  const OUTPUT_TOKENS_PER_TRIAL = 80;
   const write = (tokens: number): TrialUsage => ({
     inputTokens: 0,
     outputTokens: OUTPUT_TOKENS_PER_TRIAL,
@@ -159,11 +205,7 @@ export function estimateRunUsd(
     cacheReadInputTokens: 0,
   });
 
-  const minimum = spec.cache.minimumPrefixTokens;
-  if (
-    spec.cache.population === 'none' ||
-    (minimum !== undefined && inputTokensPerTrial < minimum)
-  ) {
+  if (!prefixCaches(spec.cache, inputTokensPerTrial)) {
     return (
       totalTrials *
       priceUsage(spec, {

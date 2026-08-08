@@ -1,0 +1,198 @@
+# The live measurement corpus: 15 real skills from google/skills, pinned.
+#
+#   npx tsx scripts/fetch-corpus.ts          # fetch the surface (once)
+#   pickrate inspect corpus/gcp-data         # free, no key
+#   pickrate run corpus/gcp-data.yaml        # baseline
+#   pickrate mutate corpus/gcp-data.yaml     # the measurement
+#
+# Why this exists rather than test/fixtures/mutation.yaml: that fixture's
+# surface has three tools whose names restate their descriptions, so every
+# description mutation survived and the mutation score was structurally zero
+# before a single model call. Here the names are product brands — nothing about
+# `spanner` says "globally consistent transactions" — so the description is the
+# only thing routing a selection, which is the premise mutation testing needs.
+#
+# Three authoring rules, each earned by a specific failure of that first run:
+#
+#   1. No prompt contains its target's name or a synonym of it. Every prompt is
+#      phrased as the symptom a user would actually arrive with. It may name the
+#      *product* a cluster shares — the first baseline run floored four
+#      scenarios at "got nothing" because stripping "BigQuery" left the model no
+#      reason to reach for a Google Cloud skill at all. Naming the product does
+#      not leak the answer when three skills claim it and the interface is the
+#      discriminator; naming the skill would.
+#   2. No destructive framing. The old `delete-branch` scenario scored 0/10
+#      because the model *declined* an irreversible action, not because it
+#      mis-selected — that measures refusal, and a scenario already on the floor
+#      is one no mutant can move.
+#   3. Near-misses within a cluster, because a mutant can only show up as a swap
+#      to a neighbour. The pairs are marked below.
+#   4. A prompt must be self-contained. "turn these PromQL expressions into
+#      dashboard definitions" scored 0/5 because the expressions were not there
+#      and the model asked for them instead of acting — that measures
+#      conversational repair, not selection, and it floors a scenario just as
+#      dead as a refusal does.
+#
+# Selection-only, for the same reason mutation.yaml is: argument matching is a
+# separate metric that would move the mean for reasons unrelated to the defect.
+target:
+  type: skills
+  path: ./gcp-data
+
+defaults:
+  trials: 10
+  threshold: 0.9
+  model: claude-haiku-4-5
+  concurrency: 4
+  presentation: skill-tool
+
+scenarios:
+  # --- provisioning: alloydb / cloud-sql / spanner / bigtable compete, and
+  # `gcloud` claims "any GCP resources" over the top of all four.
+  - id: managed-mysql
+    prompt: "we need a managed MySQL instance for the staging environment"
+    expect:
+      select: cloud-sql-basics
+
+  # Spanner's pitch is global strong consistency; nothing in the name says so.
+  - id: global-consistency
+    prompt: "we're going multi-region and need strongly consistent transactions across three continents — help me lay out the keys"
+    expect:
+      select: spanner-basics
+    threshold: 0.8
+
+  # Near-miss with the above: both are "design a key so it doesn't hotspot".
+  # Only the descriptions separate wide-column from relational.
+  - id: hotspotting
+    prompt: "our time-series writes are all landing on one node and throughput has collapsed — how should the row key and column families be arranged?"
+    expect:
+      select: bigtable-basics
+    threshold: 0.8
+
+  # --- the BigQuery family: three skills over one product, separated purely by
+  # the interface each one is for. The richest mutation target in the corpus.
+  - id: warehouse-load
+    prompt: "I need to ingest CSV files into BigQuery and expose a view over them — walk me through it"
+    expect:
+      select: bigquery-basics
+
+  - id: in-warehouse-forecast
+    prompt: "forecast next quarter's signups from the warehouse table without exporting the data anywhere"
+    expect:
+      select: bigquery-ai-ml
+    threshold: 0.8
+
+  # The money scenario, and the one that had to be measured rather than argued.
+  #
+  # Its first wording ("a notebook with pandas syntax") scored 100% clean *and*
+  # 100% with bigquery-bigframes' description blanked — so the mutant registered
+  # nothing and the scenario looked healthy the whole time. The cause is not a
+  # name leak: three rewordings that never say "pandas" or "dataframe" behaved
+  # identically. It is **selection by elimination**. Blanking one description in
+  # a well-differentiated surface leaves a uniquely-shaped hole, and since none
+  # of the other fourteen skills claims Python-notebook work, the vacancy itself
+  # routes the pick.
+  #
+  # The fix is to keep a sibling in contention. Every failed candidate negated
+  # SQL ("rather than writing SQL"), which rules out `bigquery-basics` from the
+  # *prompt* and leaves the blanked skill uncontested. This wording never
+  # mentions SQL, so `bigquery-basics` ("run SQL queries ... basic data
+  # ingestion and analysis") stays live and bigframes' own description is the
+  # only thing that can arbitrate. Measured on a blanked copy of the surface:
+  # 100% clean, 0% blanked, with `bigquery-basics` taking it 8 times in 10.
+  #
+  # General rule this bought: a scenario is only a mutation instrument if some
+  # *other* item can plausibly absorb its prompt. Verify by running the
+  # candidate against a hand-blanked copy of the surface — a paired probe costs
+  # ~$0.20 and is the only way to tell a live instrument from one that merely
+  # scores 100%.
+  - id: notebook-pandas
+    prompt: "I'm exploring a BigQuery table in a Jupyter notebook and need summary statistics per category"
+    expect:
+      select: bigquery-bigframes
+    threshold: 0.8
+
+  # --- lineage: the two skills cite each other by name in their descriptions,
+  # which is the strongest swap-descriptions target here.
+  #
+  # `provenance` was reworded after the first session, where it scored 10% and
+  # 30% across the two clean runs — failing by selecting *nothing*, never by
+  # losing to its neighbour — and so single-handedly set the 20% noise floor
+  # every mutant was then judged against. It now leans on the description's own
+  # vocabulary ("debug a data quality issue", "provenance"). A control phrased
+  # with "summarise" — half the skill's own name, and the exact discriminator
+  # against its neighbour — scored 0% against this one's 100%, which is the
+  # evidence that the description is doing the routing rather than the name.
+  - id: provenance
+    prompt: "I'm debugging a data quality issue and need the provenance of a BigQuery table — what feeds it, and what does it feed?"
+    expect:
+      select: datalineage-summary
+    threshold: 0.8
+
+  # `blast-radius` was here and is deliberately gone. On Haiku the same prompt
+  # scored 20%, 60% and 70% across three clean runs — always failing by the
+  # model declining to select rather than by picking the neighbour — and three
+  # separate phrasings built from the description's own trigger vocabulary
+  # ("blast radius", "assess the consequences of modifying") all landed at
+  # 0–20%. On gpt-5.6-luna every one of them scored 100%.
+  #
+  # A scenario that swings 40 points between two clean runs sets
+  # `baseline.scenarioNoise` at 40 points on its own, and then no mutant can
+  # ever clear the bar. That is the exact failure this corpus was reworked to
+  # remove, so an unmeasurable scenario is not kept for the sake of coverage.
+  #
+  # `datalineage-bigquery-asset-impact-analysis` stays in the *surface*, so
+  # `swap-descriptions` still has both halves of the lineage pair to trade —
+  # and `provenance` above, which is stable, is what registers the damage.
+  # That it is now an orphan is the honest reading: nothing here can test it.
+
+  # --- querying: "query" belongs to both logs and the warehouse. The logging
+  # skill's description is what rules SQL out.
+  - id: error-hunt
+    prompt: "find every 5xx the checkout service returned last night"
+    expect:
+      select: cloud-logging-query-generation
+
+  # --- observability: discovery vs rendering, another explicit cross-reference.
+  - id: metric-discovery
+    prompt: "what's actually available to alert on for our serverless containers?"
+    expect:
+      select: cloud-monitoring-metric-selection
+    threshold: 0.8
+
+  - id: dashboard-widgets
+    prompt: "how do I declaratively define a Cloud Monitoring dashboard from PromQL so I can commit it to git?"
+    expect:
+      select: cloud-monitoring-chart-generation
+    threshold: 0.8
+
+  # --- a control that should sit near 100% and stay there. If a mutant
+  # elsewhere moves this, the damage was context-wide, not description-local.
+  - id: signed-link
+    prompt: "give a partner a time-limited link to one file without opening up the whole bucket"
+    expect:
+      select: google-cloud-storage-basics
+
+  # --- restraint: plausible engineering requests this surface cannot answer.
+  # Deliberately not "what's the capital of France" — the interesting failure is
+  # a skill volunteering for adjacent work, and the GKE and frontend skills that
+  # would cover these were left out of the selection for exactly that reason.
+  - id: no-skill-frontend
+    prompt: "the login button is misaligned on mobile Safari"
+    expect:
+      select: null
+
+  - id: no-skill-kubernetes
+    prompt: "our pods keep getting evicted around 3am and I can't work out why"
+    expect:
+      select: null
+
+  - id: no-skill-regex
+    prompt: "write me a regex that validates UK postcodes"
+    expect:
+      select: null
+
+  - id: no-skill-release
+    prompt: "draft the release announcement for version 4.2"
+    expect:
+      select: null

@@ -1,0 +1,1263 @@
+[
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 31,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "feature-login"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 30,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 52,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 66,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 64,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 93,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 78,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 68,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 50,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 58,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 52,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 52,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 64,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 56,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 64,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 64,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 65,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 66,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 61,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 78,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 65,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-colloquial",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "login-work",
+          "base": "main"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 243,
+      "outputTokens": 68,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 13,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 13,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 5,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 62,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 56,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 78,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 58,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 48,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 61,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 69,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 64,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 76,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "no-tool-needed",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 241,
+      "outputTokens": 6,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 63,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 72,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 67,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 62,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 66,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 60,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 53,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 71,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 60,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 57,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  },
+  {
+    "scenarioId": "create-branch-named",
+    "calls": [
+      {
+        "name": "create_branch",
+        "args": {
+          "name": "hotfix"
+        }
+      }
+    ],
+    "stopReason": "completed",
+    "usage": {
+      "inputTokens": 239,
+      "outputTokens": 63,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 0
+    }
+  }
+]

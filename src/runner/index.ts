@@ -1,7 +1,7 @@
 import { adapterFor } from '../adapters/index.js';
 import type { Presentation } from '../adapters/contract.js';
 import { trialsFor } from '../config/index.js';
-import { costOfTrials } from '../provider/pricing.js';
+import { costOfTrials, prefixCaches } from '../provider/pricing.js';
 import { scoreRun, totalUsage, type ScoreOptions } from '../scorer/index.js';
 import type { EvalConfig, EvalReport, Scenario, Surface, TrialResult } from '../types.js';
 import type { CostEstimate, Provider } from '../provider/contract.js';
@@ -124,7 +124,12 @@ export async function runEval(
 
   const usage = totalUsage(trialsByScenario);
   // Priced per trial and summed, never off the total — a long-context meter reads per request.
-  const costUsd = costOfTrials(model, results.map((trial) => trial.usage));
+  // The alias is the pricing fallback: a dated snapshot has no table entry of its own.
+  const costUsd = costOfTrials(
+    model,
+    results.map((trial) => trial.usage),
+    provider.model,
+  );
 
   return {
     source: surface.source,
@@ -158,8 +163,8 @@ export async function runEval(
 function shouldWarm(provider: Provider, estimate: CostEstimate | undefined): boolean {
   const { cache } = provider.capabilitiesFor(provider.model);
   if (cache.population !== 'explicit-breakpoint') return false;
-  if (estimate === undefined || cache.minimumPrefixTokens === undefined) return true;
-  return estimate.inputTokensPerTrial >= cache.minimumPrefixTokens;
+  if (estimate === undefined) return true;
+  return prefixCaches(cache, estimate.inputTokensPerTrial);
 }
 
 /** Total trials a config will run, for the preflight estimate. */
