@@ -108,11 +108,22 @@ scenarios:
       select: datalineage-summary
     threshold: 0.8
 
-  - id: blast-radius
-    prompt: "we're about to change the schema of a BigQuery table — what downstream reports and jobs would that affect?"
-    expect:
-      select: datalineage-bigquery-asset-impact-analysis
-    threshold: 0.8
+  # `blast-radius` was here and is deliberately gone. On Haiku the same prompt
+  # scored 20%, 60% and 70% across three clean runs — always failing by the
+  # model declining to select rather than by picking the neighbour — and three
+  # separate phrasings built from the description's own trigger vocabulary
+  # ("blast radius", "assess the consequences of modifying") all landed at
+  # 0–20%. On gpt-5.6-luna every one of them scored 100%.
+  #
+  # A scenario that swings 40 points between two clean runs sets
+  # `baseline.scenarioNoise` at 40 points on its own, and then no mutant can
+  # ever clear the bar. That is the exact failure this corpus was reworked to
+  # remove, so an unmeasurable scenario is not kept for the sake of coverage.
+  #
+  # `datalineage-bigquery-asset-impact-analysis` stays in the *surface*, so
+  # `swap-descriptions` still has both halves of the lineage pair to trade —
+  # and `provenance` above, which is stable, is what registers the damage.
+  # That it is now an orphan is the honest reading: nothing here can test it.
 
   # --- querying: "query" belongs to both logs and the warehouse. The logging
   # skill's description is what rules SQL out.

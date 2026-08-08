@@ -99,10 +99,55 @@ A mechanistically motivated fix rather than a fitted one: at most `concurrency` 
 
 Note also that the new cache-minimum warning correctly stayed *silent* on this run, which is the branch a sub-minimum surface cannot exercise.
 
+## 5c. The 8 August Haiku session — $4.05, and the score that means something
+
+**Mutation score 67% — 4 of 6 — against 17% on 3 August.** Baseline 89%, and `scenarioNoise` fell to **10%**, which is `minNoise(10)`: the two clean runs agreed exactly on the mean and within one trial on every scenario. There is no lower floor available at ten trials.
+
+### `provenance` did not reach 80%, and the earlier claim was wrong
+
+A 5-trial run read it at 80% and that was recorded here as a confirmation. The 10-trial session reads **40% / 30%**. Five trials on a scenario near 35% has an interval wide enough to produce an 80% sample by chance, and it did.
+
+| | 3 August | 8 August |
+|---|---|---|
+| level | 10% / 30% | 40% / 30% |
+| run-to-run gap | **20 points** | **10 points** |
+
+The rewording improved *stability* — the gap halved, and the gap is what sets the floor — far more than *level*, which moved from ~20% to ~35%. It remains the weakest scenario in the corpus. **Most of the floor's 20 → 10 point drop is attributable to removing `blast-radius`, not to the `provenance` rewording.** Worth stating because the two changes shipped together and the credit is not evenly split.
+
+The lesson generalises: a 5-trial probe is fine for *ruling a phrasing out* and cannot confirm one. Every acceptance in §5b was made on 4 trials and is subject to the same caveat.
+
+**`blast-radius` is dropped, and the reason is a measurement one.** Ten minutes after it scored 60% in the full-corpus run, the identical prompt scored 20% in a three-phrasing probe — same model, same surface, same trial count. Across three clean runs it has now read 20%, 60% and 70%, always failing by the model declining to select rather than by picking its neighbour. Two alternative phrasings, each lifted from the description's own trigger list, scored 0%.
+
+`baseline.scenarioNoise` is the widest single-scenario gap between the clean runs, so a scenario that swings 40 points sets a 40-point bar for every mutant in the session — the same defect `provenance` was reworded to remove, larger. Keeping an unmeasurable scenario for the sake of coverage would quietly buy back the problem this whole exercise existed to fix.
+
+The skill stays in the surface, so `swap-descriptions` still has both halves of the lineage pair to trade; `provenance` is what registers the damage. The skill reads as an orphan now, which is the honest statement: nothing in this corpus can test it on this model.
+
+### What the session establishes
+
+| mutant | worst drop | on | verdict |
+|---|---|---|---|
+| `blank-description:bigquery-ai-ml` | −95% | `in-warehouse-forecast` | **killed** |
+| `inject-decoys` | −75% | `in-warehouse-forecast` | **killed** |
+| `swap-descriptions:alloydb+bigquery-ai-ml` | −20% | `dashboard-widgets` | **killed** |
+| `swap-descriptions:alloydb+bigquery-basics` | −20% | `dashboard-widgets` | **killed** |
+| `blank-description:bigquery-basics` | −10% | `metric-discovery` | survived (*at* the floor) |
+| `blank-description:bigquery-bigframes` | 0% | — | survived |
+
+- **The kill-rule change is validated on live data.** `blank-description:bigquery-ai-ml` is the mutant the mean-based rule reported as a survivor on 3 August. It now kills at −95%, and the re-judge of the old recording predicted exactly this.
+- **Both `swap-descriptions` mutants killed on `dashboard-widgets`, which exercises neither damaged skill.** That is a neighbour stealing the selection, and it is the direct evidence for §M3's decision to take the worst drop over *every* scenario rather than only those expecting a damaged item. Judging on the target's own scenarios would have scored these two as survivors.
+- **The planner change held.** No mutant landed solely on an orphan, against three of six in the previous session.
+- `blank-description:bigquery-basics` dropped exactly 10% — *at* the floor, not past it. Reported as a survivor, and genuinely borderline rather than clean.
+
+### `notebook-pandas` leaks the name, and that is my error
+
+`blank-description:bigquery-bigframes` moved its own scenario by **0%**. The prompt asks for "pandas syntax", and BigFrames *is* BigQuery DataFrames — the name carries the routing, so removing the description changes nothing. This is precisely the failure the corpus was built to avoid (§0), reproduced in a hand-written scenario, and it went unnoticed because the scenario scores 100% and looks healthy. **A scenario passing at 100% tells you nothing about whether the description earned it; only a mutation does.** Which is the argument for the whole milestone, arrived at the expensive way.
+
 ## 6. Still open
 
-- **How many mutants before the score means anything** (spec §8.5) is still open, and 6 is still a guess. 4.2 says the answer depends on the planner as much as the count.
+- **How many mutants before the score means anything** (spec §8.5) is still open, and 6 is still a guess. 4.2 says the answer depends on the planner as much as the count — and at 6, one borderline verdict is worth 17 points of score.
+- **`notebook-pandas` wants rewording** so the description carries the routing (§5c). Until then `bigquery-bigframes` is effectively untested, and its survivor is uninformative.
+- **`provenance` at ~35% is still the corpus's weakest scenario.** It is stable enough not to inflate the floor, but a scenario that low has little room to drop and is a poor mutation instrument.
 - **Whether a refusal-to-destroy should score as a selection miss.** Raised by the first session's `delete-branch`, unresolved. It affects the scorer, not this corpus.
 - **`cloud-logging-query-generation` triggers on "our pods keep getting evicted at 3am"** — 10/10 on Haiku, 4/5 on `gpt-5.6-luna`. Its description claims "or when you are debugging issues", broad enough to capture unrelated work. A finding *about a shipped Google skill*, produced by the restraint scenario, reproducing across two providers, and the first real example of the output M5 exists to publish.
 - **Pricing `automatic-prefix` as all-writes over-states by 3.2×** (§5b). Measured once, at one concurrency. Wants a second data point before the preflight's promise changes.
-- **`provenance` is confirmed on OpenAI only.** The rewording needs one 5-trial Haiku run (~$0.25) to confirm the floor it was meant to lower actually falls, since that floor is what every future mutant is judged against.
+- **`datalineage-bigquery-asset-impact-analysis` is unreachable on Haiku and trivial on OpenAI.** Three symptom-phrased prompts built from its own trigger vocabulary scored 0–20% on `claude-haiku-4-5` and 100% on `gpt-5.6-luna`, and the one kept in the corpus swung 20%/60%/70% across three clean Haiku runs — always by declining to select, never by picking its neighbour. A second finding of the kind M5 publishes, and a sharper one than the `cloud-logging` over-trigger because the *direction* reverses by model. The scenario is dropped (§5c); the skill stays in the surface.
