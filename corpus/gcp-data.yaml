@@ -82,14 +82,35 @@ scenarios:
       select: bigquery-ai-ml
     threshold: 0.8
 
-  # The money scenario. `bigquery-bigframes` is chosen only by its own negative
-  # routing ("Don't use for SQL-first workflows — use bigquery-basics"), so a
-  # blanked or swapped description here should be visibly lethal.
+  # The money scenario, and the one that had to be measured rather than argued.
+  #
+  # Its first wording ("a notebook with pandas syntax") scored 100% clean *and*
+  # 100% with bigquery-bigframes' description blanked — so the mutant registered
+  # nothing and the scenario looked healthy the whole time. The cause is not a
+  # name leak: three rewordings that never say "pandas" or "dataframe" behaved
+  # identically. It is **selection by elimination**. Blanking one description in
+  # a well-differentiated surface leaves a uniquely-shaped hole, and since none
+  # of the other fourteen skills claims Python-notebook work, the vacancy itself
+  # routes the pick.
+  #
+  # The fix is to keep a sibling in contention. Every failed candidate negated
+  # SQL ("rather than writing SQL"), which rules out `bigquery-basics` from the
+  # *prompt* and leaves the blanked skill uncontested. This wording never
+  # mentions SQL, so `bigquery-basics` ("run SQL queries ... basic data
+  # ingestion and analysis") stays live and bigframes' own description is the
+  # only thing that can arbitrate. Measured on a blanked copy of the surface:
+  # 100% clean, 0% blanked, with `bigquery-basics` taking it 8 times in 10.
+  #
+  # General rule this bought: a scenario is only a mutation instrument if some
+  # *other* item can plausibly absorb its prompt. Verify by running the
+  # candidate against a hand-blanked copy of the surface — a paired probe costs
+  # ~$0.20 and is the only way to tell a live instrument from one that merely
+  # scores 100%.
   - id: notebook-pandas
-    prompt: "I want to do this analysis in a notebook with pandas syntax, but the dataset is far too big to pull down locally"
+    prompt: "I'm exploring a BigQuery table in a Jupyter notebook and need summary statistics per category"
     expect:
       select: bigquery-bigframes
-    threshold: 0.7
+    threshold: 0.8
 
   # --- lineage: the two skills cite each other by name in their descriptions,
   # which is the strongest swap-descriptions target here.

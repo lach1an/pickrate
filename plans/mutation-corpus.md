@@ -138,14 +138,28 @@ The skill stays in the surface, so `swap-descriptions` still has both halves of 
 - **The planner change held.** No mutant landed solely on an orphan, against three of six in the previous session.
 - `blank-description:bigquery-basics` dropped exactly 10% — *at* the floor, not past it. Reported as a survivor, and genuinely borderline rather than clean.
 
-### `notebook-pandas` leaks the name, and that is my error
+### `notebook-pandas` registered nothing — and the reason was not the one that looked obvious
 
-`blank-description:bigquery-bigframes` moved its own scenario by **0%**. The prompt asks for "pandas syntax", and BigFrames *is* BigQuery DataFrames — the name carries the routing, so removing the description changes nothing. This is precisely the failure the corpus was built to avoid (§0), reproduced in a hand-written scenario, and it went unnoticed because the scenario scores 100% and looks healthy. **A scenario passing at 100% tells you nothing about whether the description earned it; only a mutation does.** Which is the argument for the whole milestone, arrived at the expensive way.
+`blank-description:bigquery-bigframes` moved its own scenario by **0%**. The immediate read was a name leak: the prompt asked for "pandas syntax" and BigFrames *is* BigQuery DataFrames. That read was wrong, and a paired probe against a hand-blanked copy of the surface disproved it — **three rewordings that never say "pandas" or "dataframe" all scored 100% clean and 100% blanked**, exactly like the original.
+
+The actual mechanism is **selection by elimination**. Blanking one description in a well-differentiated surface leaves a uniquely-shaped hole; none of the other fourteen skills claims Python-notebook work, so the vacancy itself routes the pick. The better the *surrounding* descriptions, the more reliably the blanked one wins by default — which means `blank-description` systematically under-reports damage on exactly the well-written surfaces this tool exists to reward.
+
+That also explains why the operator worked elsewhere in the same session. `blank-description:bigquery-ai-ml` killed at −95% because `in-warehouse-forecast` ("forecast next quarter's signups") is a task `bigquery-basics` can plausibly claim — there was a sibling to absorb the orphaned prompt. **`blank-description` only registers when some other item can take the prompt.**
+
+The fix follows from that, and it is not a reword-for-vocabulary. Every failed candidate negated SQL ("rather than writing SQL"), which eliminates `bigquery-basics` from the *prompt* and leaves the blanked skill uncontested. A wording that never mentions SQL keeps the sibling live:
+
+| wording | clean | blanked |
+|---|---|---|
+| "exploring a BigQuery table in a Jupyter notebook, summary statistics per category" | **100%** | **0%** (`bigquery-basics` takes it 8/10) |
+| "what Python library should I use…" | 100% | 100% |
+| "fit a scikit-learn style model…" | 100% | 100% |
+
+**Method worth keeping: a scenario is only a mutation instrument if some other item can plausibly absorb its prompt, and the way to check is a paired probe against a hand-blanked copy of the surface.** ~$0.20, and it is the only way to tell a live instrument from one that merely scores 100%. Both of this corpus's blind spots — this and `blast-radius` — were invisible to a clean run and obvious to a paired one.
 
 ## 6. Still open
 
 - **How many mutants before the score means anything** (spec §8.5) is still open, and 6 is still a guess. 4.2 says the answer depends on the planner as much as the count — and at 6, one borderline verdict is worth 17 points of score.
-- **`notebook-pandas` wants rewording** so the description carries the routing (§5c). Until then `bigquery-bigframes` is effectively untested, and its survivor is uninformative.
+- **`blank-description` under-reports on well-differentiated surfaces** (§5c). It only registers when a sibling can absorb the orphaned prompt; otherwise the blanked item wins by elimination. `swap-descriptions` has no such blind spot — it fills the hole with a *wrong* description, so there is no vacancy to infer from, which is why both swap mutants killed here. Whether the operator should be changed (e.g. blanking a whole cluster, or replacing rather than emptying) is a real question and is not answered.
 - **`provenance` at ~35% is still the corpus's weakest scenario.** It is stable enough not to inflate the floor, but a scenario that low has little room to drop and is a poor mutation instrument.
 - **Whether a refusal-to-destroy should score as a selection miss.** Raised by the first session's `delete-branch`, unresolved. It affects the scorer, not this corpus.
 - **`cloud-logging-query-generation` triggers on "our pods keep getting evicted at 3am"** — 10/10 on Haiku, 4/5 on `gpt-5.6-luna`. Its description claims "or when you are debugging issues", broad enough to capture unrelated work. A finding *about a shipped Google skill*, produced by the restraint scenario, reproducing across two providers, and the first real example of the output M5 exists to publish.
