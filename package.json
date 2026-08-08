@@ -1,6 +1,6 @@
 {
   "name": "pickrate",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Does an agent actually pick your MCP tools and Agent Skills correctly? Zero-config surface linting and selection evals.",
   "type": "module",
   "license": "MIT",

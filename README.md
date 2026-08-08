@@ -9,6 +9,8 @@ A tool manifest is a prompt. Names, descriptions and schemas are the entire inte
 The same question applies to Agent Skills, for the same reason: a skill is selected from a one-line description too. Both surfaces go through the same measurement.
 
 > Status: **M1–M4 complete**, on npm. `inspect` (static analysis), `run` (selection eval) and `mutate` (how much to trust the eval) all work on MCP servers and skills directories alike, and all three are wired for CI — an exit-code contract, gates in the config file, and baseline comparison. See [`plans/mcp-eval-spec.md`](plans/mcp-eval-spec.md) for the reasoning behind all of it. **M5 (the leaderboard) is next.**
+>
+> Since `0.1.0`: a second provider (`openai`, with the default model chosen by measurement rather than assumption), MCP's `2026-07-28` revision including the transport and its cache lints, and a mutation loop that has now been run against a [real 15-skill corpus](plans/mutation-corpus.md) rather than only a fixture. The JSON report is at `schemaVersion` **3** — see the [changelog](CHANGELOG.md) for what moved.
 
 ## Quick start
 
@@ -230,23 +232,39 @@ The problem it solves is circularity: whoever writes the scenarios reads the sam
 pickrate mutate pickrate.yaml --mutants 3
 ```
 
-```
-pickrate mutate  ./git-server.json
-  model     claude-haiku-4-5
-  baseline  91%  from 2 clean runs of 20 trials · noise floor 6%
+Below is a real session — 15 skills from `google/skills`, six mutants, $3.77. The corpus is fetched at a pinned SHA rather than vendored (`npx tsx scripts/fetch-corpus.ts`), and `corpus/gcp-data.yaml` is the config that produced this:
 
-  ✓ blank-description:create_branch  −34%  detected
-                                     "create_branch" loses its description
-  · swap-descriptions:a+b             −1%  survived
-                                     "a" and "b" trade descriptions
+```
+pickrate mutate  ./corpus/gcp-data
+  model     claude-haiku-4-5-20251001
+  surfaced  skill-tool
+  baseline  89%  from 2 clean runs of 10 trials · a mutant must drop one scenario by 10%
+  cost      ~$3.77  (2,827,370 in / 187,682 out, 0 cached, over 8 runs)
+
+  ✓ blank-description:bigquery-ai-ml                  −95%  detected  on in-warehouse-forecast
+                                                      "bigquery-ai-ml" loses its description
+  ✓ swap-descriptions:alloydb-basics+bigquery-ai-ml   −20%  detected  on dashboard-widgets
+                                                      "alloydb-basics" and "bigquery-ai-ml" trade descriptions
+  ✓ inject-decoys                                     −75%  detected  on in-warehouse-forecast
+                                                      20 irrelevant items added to a surface of 15
+  · blank-description:bigquery-basics                 −10%  survived  on metric-discovery
+                                                      "bigquery-basics" loses its description
+  ✓ swap-descriptions:alloydb-basics+bigquery-basics  −20%  detected  on dashboard-widgets
+                                                      "alloydb-basics" and "bigquery-basics" trade descriptions
+  · blank-description:bigquery-bigframes                0%  survived
+                                                      "bigquery-bigframes" loses its description
 
   survivors
-    · swap-descriptions:a+b — damaged a, b
+    · blank-description:bigquery-basics — damaged bigquery-basics
+    · blank-description:bigquery-bigframes — damaged bigquery-bigframes
     A survivor is inconclusive, not a pass. Either no scenario exercises
-    the damaged tools, or the harness cannot see the damage. Check coverage first.
+    the affected skills, or the harness cannot see the damage. Check coverage first.
 
-  mutation score  50%  1 of 2 injected defects detected
+  mutation score  67%  4 of 6 injected defects detected
+  Comparable only against other skills runs, never averaged across adapters.
 ```
+
+Note both `swap-descriptions` mutants: each was killed by `dashboard-widgets`, a scenario that exercises **neither** damaged skill. That is the characteristic finding — a neighbour whose description now overlaps yours stealing the selection — and judging each mutant on its own targets' scenarios would have scored both as survivors.
 
 ### Operators
 
@@ -270,11 +288,23 @@ Plus `--dry-run`, `--yes`, `--model`, `--provider`, `--trials` and `--presentati
 
 `--mutants` defaults to 3 rather than the spec's three per operator: nine mutants plus the two clean baselines is over a thousand trials before anyone has read the output once. How many it takes before the score is stable is a thing to measure, not to guess.
 
-### The noise floor
+### The noise floor, and what the drop is measured on
 
 A mutation score built on a single clean run is a count of coin flips. So the clean surface is measured **twice**, and the gap between those two runs is the bar a mutant's drop has to clear — spec §6's variance baseline. Below that gap, nothing means anything.
 
 The gap is floored at `1/trials`: one trial flipping is worth that much, and two runs that happen to land identically would otherwise set the bar at zero and "detect" every mutant, including the ones that changed nothing.
+
+**The drop is the worst per-scenario drop, never the mean**, judged against a floor measured the same way — the widest gap any single scenario showed between the two clean runs. A mutant damages specific items, so its effect concentrates in the few scenarios that exercise them, and dividing by the whole scenario count dilutes the signal *in proportion to corpus size*: the better your corpus, the more invisible the finding. This is not hypothetical. In the first corpus session, blanking one description took its own scenario from 100% to 30% and was reported as a **survivor**, because 70 points across sixteen scenarios is 4.4 points of mean. Same rule as the CI regression gate, for the same reason. The mean is still reported, as a diagnostic.
+
+### Where the mutants land
+
+Mutants are planned round-robin across the operators, but each operator damages **items some scenario actually exercises** first. Surface order is alphabetical, which is unrelated to what you tested — the first corpus session put three of six mutants on a single orphan skill and bought three guaranteed survivors with half its budget. Untested items are still eligible once the tested ones are exhausted, because a survivor naming an orphan is the only way "no scenario covers this" ever gets reported.
+
+### `blank-description` under-reports on good surfaces
+
+It is the bluntest operator and it has one blind spot worth knowing before you read a survivor. Blanking a description in a **well-differentiated** surface leaves a uniquely-shaped hole, and the model routes the prompt by elimination — the vacancy itself carries the signal the description used to. So the skill still gets picked, and the operator scores a survivor on a surface that is arguably working as intended. `swap-descriptions` does not have this problem: it fills the hole with a *wrong* description, leaving nothing to infer from.
+
+The check is a paired probe — run the eval against a hand-blanked copy of the surface (~$0.20) and see whether the scenario moves at all. A scenario is only a mutation instrument if some other item could plausibly absorb its prompt. Both of the corpus's blind spots were invisible to a clean run and obvious to a paired one; the sessions are written up in [`plans/mutation-corpus.md`](plans/mutation-corpus.md).
 
 ### Reading it
 
@@ -283,7 +313,7 @@ The gap is floored at `1/trials`: one trial flipping is worth that much, and two
 - **Mutation scores are per-adapter.** Blanking one description out of eight skills and one out of forty tools are not the same operation. Never average them.
 - **`--replay` is refused here.** Recorded trials are keyed on scenario id and indifferent to the surface, so every mutant would replay identically and score 0% — a devastating-looking finding that is pure artefact.
 
-Cost is `(2 + mutants) × trials × scenarios`, and each run is a different surface and so a different cached prefix. `--dry-run` prices it first.
+Cost is `(2 + mutants) × trials × scenarios`, and each run is a different surface and so a different cached prefix. `--dry-run` prices it first — **per leg**, not by multiplying the clean surface out, because `inject-decoys` grows the manifest by design and pricing every leg as the clean one under-reports the bill.
 
 ## CI
 
