@@ -93,8 +93,17 @@ scenarios:
 
   # --- lineage: the two skills cite each other by name in their descriptions,
   # which is the strongest swap-descriptions target here.
+  #
+  # `provenance` was reworded after the first session, where it scored 10% and
+  # 30% across the two clean runs — failing by selecting *nothing*, never by
+  # losing to its neighbour — and so single-handedly set the 20% noise floor
+  # every mutant was then judged against. It now leans on the description's own
+  # vocabulary ("debug a data quality issue", "provenance"). A control phrased
+  # with "summarise" — half the skill's own name, and the exact discriminator
+  # against its neighbour — scored 0% against this one's 100%, which is the
+  # evidence that the description is doing the routing rather than the name.
   - id: provenance
-    prompt: "the revenue figures in this BigQuery table look wrong — I need to see where its data actually comes from before I trust it"
+    prompt: "I'm debugging a data quality issue and need the provenance of a BigQuery table — what feeds it, and what does it feed?"
     expect:
       select: datalineage-summary
     threshold: 0.8

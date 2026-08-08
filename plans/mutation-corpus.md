@@ -83,8 +83,26 @@ Both under-reported the bill, the direction this project treats as a defect.
 - **Fixed.** `preflight` priced `runs` copies of the *clean* surface, but `inject-decoys` grows the manifest on purpose — it cost 1.9× a clean run in the first session, a 26% under-report. `preflight` now takes one leg per surface and `mergeEstimates` sums them; `inputTokensPerTrial` becomes the trial-weighted mean so it still multiplies back to the total, and the cost drops to absent if any leg fails to price rather than reporting a partial sum. Tested in `test/pricing.test.ts`.
 - **Fixed.** `OUTPUT_TOKENS_PER_TRIAL` sat at 80 through two sessions that spent 105/trial and **150/trial**. That constant was the entire residual gap — $3.54 estimated, $3.98 billed, and 1280 × 70 × $5/M = $0.45 closes it exactly. Now 150, and **exported**: `test/pricing.test.ts` had re-hardcoded the literal `80` in nine places, so the tests agreed with the bug rather than catching it. Same reasoning as the analyser's "thresholds are exported named constants, not inline literals", applied one directory over.
 
+## 5b. The 8 August OpenAI session — $0.09, and three things came out of it
+
+Run on `gpt-5.6-luna` because the Anthropic balance was exhausted. Cross-provider scores are not comparable (model + reasoning + regime is the unit, never averaged), so this could rule a phrasing *out* but not confirm one for Haiku. It ruled plenty out.
+
+**`provenance` is fixed, and the control proved why.** Four candidate phrasings at 4 trials: the winner at 100% leans on the description's own vocabulary — *"I'm debugging a data quality issue and need the provenance of a BigQuery table — what feeds it, and what does it feed?"*. The deliberate control, phrased with *"summarise"* — half the skill's own name and the exact discriminator against its neighbour — scored **0%**. The worry that the name would leak and inflate the score was exactly backwards, which is the evidence that the winner wins on the description. `blast-radius`'s existing wording scored 100% unchanged, so its Haiku weakness is provider-specific rather than a bad prompt. Full corpus at 5 trials: **14 of 16 at 100%, nothing floored.**
+
+**The over-trigger finding reproduces across providers.** `cloud-logging-query-generation` takes "our pods keep getting evicted at 3am" 10/10 on Haiku and 4/5 here. A single-provider finding is precisely the confound `multi-provider-plan.md` §0 warns the leaderboard against publishing; two providers independently is a result that survives the obvious rebuttal.
+
+**A prefix cached for the first time in this project's history, and it settles an open question.** Every previous surface sat below its model's minimum, so `0 cached` was the expected reading and confirmed nothing. At 1,615 tokens per trial against OpenAI's 1,024 minimum, this one caches: `cacheCreationInputTokens: 3515`, `cacheReadInputTokens: 125675` over 80 trials — **2.2 trials wrote the prefix and 77.8 read it.**
+
+M2's decision to price every `automatic-prefix` trial as a write says outright that "the real ratio is unmeasured". It is now measured, and the estimate over-states by **3.2×** — $0.2335 against $0.0735 billed. Over-stating is the accepted direction, but 3.2× is enough to talk someone out of a run costing a third of what they were told.
+
+A mechanistically motivated fix rather than a fitted one: at most `concurrency` trials can race before the first response lands and populates the prefix, so price `concurrency` writes plus `N − concurrency` reads. At concurrency 4 that predicts 4 writes against 2.2 observed — still an upper bound, at 1.8× rather than 3.2×. **Not implemented:** it is a measurement decision, and one data point at one concurrency is thin evidence for changing what a preflight promises.
+
+Note also that the new cache-minimum warning correctly stayed *silent* on this run, which is the branch a sub-minimum surface cannot exercise.
+
 ## 6. Still open
 
 - **How many mutants before the score means anything** (spec §8.5) is still open, and 6 is still a guess. 4.2 says the answer depends on the planner as much as the count.
 - **Whether a refusal-to-destroy should score as a selection miss.** Raised by the first session's `delete-branch`, unresolved. It affects the scorer, not this corpus.
-- **`cloud-logging-query-generation` triggers on "our pods keep getting evicted at 3am"** ×10 — its description claims "or when you are debugging issues", which is broad enough to capture unrelated work. That is a finding *about a shipped Google skill*, produced by the restraint scenario, and it is the first real example of the output M5 is meant to publish.
+- **`cloud-logging-query-generation` triggers on "our pods keep getting evicted at 3am"** — 10/10 on Haiku, 4/5 on `gpt-5.6-luna`. Its description claims "or when you are debugging issues", broad enough to capture unrelated work. A finding *about a shipped Google skill*, produced by the restraint scenario, reproducing across two providers, and the first real example of the output M5 exists to publish.
+- **Pricing `automatic-prefix` as all-writes over-states by 3.2×** (§5b). Measured once, at one concurrency. Wants a second data point before the preflight's promise changes.
+- **`provenance` is confirmed on OpenAI only.** The rewording needs one 5-trial Haiku run (~$0.25) to confirm the floor it was meant to lower actually falls, since that floor is what every future mutant is judged against.
