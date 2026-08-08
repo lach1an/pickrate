@@ -96,7 +96,7 @@ npx pickrate run examples/filesystem.yaml --dry-run   # price it, spend nothing
 npx pickrate run examples/filesystem.yaml
 ```
 
-This one needs model access — `ANTHROPIC_API_KEY` or an `ant auth login` profile by default, `OPENAI_API_KEY` for the other provider.
+This one needs model access: `ANTHROPIC_API_KEY` (or an `ant auth login` profile) for a `claude-*` model, `OPENAI_API_KEY` for a `gpt-*` one. Which key it reads follows from the model in your config.
 
 ```
 pickrate run  npx -y @modelcontextprotocol/server-filesystem /tmp
@@ -132,9 +132,9 @@ pickrate run pickrate.yaml --provider openai --model gpt-5.6-luna
 
 Credentials are read from the environment and never taken as a flag — an argument lands in the command trace.
 
-**`--provider openai` defaults to `gpt-5.6-luna`, and the default was measured rather than assumed.** The worry was that a tier which reasons by default would not be cheap, since reasoning bills as output. On 80 trials at the effort pickrate sends, it spent fewer output tokens per trial than the Claude default and cost 2.5× less for the same run — while the tier above it cost 2.45× more and scored *worse* on the scenario that discriminates. Tier price does not order selection accuracy, which is the whole reason to measure rather than pick.
+Each provider's default model was chosen by measuring candidates on this harness rather than by reading a price list. For `openai` that is `gpt-5.6-luna`: on 80 trials at the effort pickrate sends, it spent fewer output tokens per trial than the `anthropic` default and cost 2.5× less for the same run, while the tier above it cost 2.45× more and scored *worse* on the scenario that discriminates. The transferable finding is that **tier price does not order selection accuracy** — which is the argument for measuring your own surface rather than inheriting anyone's default, including the ones here.
 
-Scores from two providers are not comparable *as scores*. The provider is part of the regime hash printed beside every run, and `--baseline` refuses a comparison across it — the same discipline that refuses one across models or presentation modes. What the pair is good for is the gap between them on a surface held constant.
+Neither default is a recommendation, and the numbers above are one surface on one date. **Scores from two providers are not comparable as scores**, so this tool will not rank them for you: the provider is part of the regime hash printed beside every run, and `--baseline` refuses a comparison across it — the same discipline that refuses one across models or presentation modes. What the pair is good for is the *gap* between them on a surface you hold constant, which is a fact about your descriptions rather than about either vendor.
 
 ### `run` options
 
@@ -411,7 +411,7 @@ What it needs in exchange is [the weekly refresh job](examples/workflows/baselin
 | `command` | `inspect` (default), `run`, `mutate` |
 | `config` / `target` / `adapter` | what to measure |
 | `version` | npm range, or `local` to build the checkout |
-| `anthropic-api-key` | omit it for `inspect` — that is the point of `inspect` |
+| `anthropic-api-key` / `openai-api-key` | pass whichever the configured model needs; omit both for `inspect` — that is the point of `inspect` |
 | `baseline` | a stored JSON report to compare against |
 | `comment` / `summary` / `artifact` | where the report goes |
 | `args` | extra CLI flags, appended verbatim |

@@ -57,6 +57,9 @@ jobs:
         with:
           command: run
           config: pickrate.yaml
+          # This example configures a claude-* model, so it passes the Anthropic
+          # key. For a gpt-* one pass openai-api-key instead — the provider
+          # follows the model id in pickrate.yaml, not the key you supply.
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           # The committed baseline. Refresh it with baseline-refresh.yml, and
           # pin a dated model id in pickrate.yaml — an alias can be re-pointed

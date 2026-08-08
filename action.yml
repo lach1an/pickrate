@@ -34,8 +34,15 @@ inputs:
     default: latest
   anthropic-api-key:
     description: >-
-      Needed by run and mutate only. Omit it for inspect — a zero-credential
-      first run is the point of inspect, not an oversight.
+      Needed by run and mutate only, and only when the model id routes to
+      Anthropic. Omit it for inspect — a zero-credential first run is the point
+      of inspect, not an oversight.
+    required: false
+  openai-api-key:
+    description: >-
+      The same thing for a model id that routes to OpenAI. Pass whichever key
+      the configured model needs; passing both is fine, since the provider is
+      inferred from the id and the unused one is never read.
     required: false
   baseline:
     description: Path to a stored JSON report to compare this run against.
@@ -103,6 +110,7 @@ runs:
         # argument lands in the command trace, and no report field ever
         # carries a credential.
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        OPENAI_API_KEY: ${{ inputs.openai-api-key }}
         COMMAND: ${{ inputs.command }}
         CONFIG: ${{ inputs.config }}
         TARGET: ${{ inputs.target }}

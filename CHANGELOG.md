@@ -8,7 +8,8 @@
 
 ### Added
 
-- **A second provider.** `openai` ships alongside `anthropic`, chosen from the model id, with `--provider` to settle what a prefix cannot. Its default (`gpt-5.6-luna`) was picked by measurement: at the effort pickrate sends it spent fewer output tokens per trial than the Claude default and cost 2.5× less, while the tier above it cost 2.45× more and scored worse.
+- **A second provider.** `openai` ships alongside `anthropic`, chosen from the model id, with `--provider` to settle what a prefix cannot. Its default (`gpt-5.6-luna`) was picked by measurement, like the other one: at the effort pickrate sends it spent fewer output tokens per trial than the `anthropic` default and cost 2.5× less, while the tier above it cost 2.45× more and scored worse on the discriminating scenario. Scores are still never compared across providers — the provider is part of the regime hash, and `--baseline` refuses the comparison.
+- **`openai-api-key` on the Action**, so `run` and `mutate` can use either provider in CI. It previously took an Anthropic key only, which made the second provider unreachable from the Action that shipped alongside it.
 - **MCP `2026-07-28`, including the transport.** Real dual-protocol negotiation on `@modelcontextprotocol/client@2` — the 2026 revision where a server offers it, the 2025 handshake where it does not. The v1 `@modelcontextprotocol/sdk` is no longer a dependency.
 - **Five cache and ordering lints**: `unstable-list-order`, `missing-cache-ttl`, `missing-cache-scope`, `public-cache-scope`, and `legacy-protocol` — which fires when the other cache checks were *skipped* rather than passed, so silence and a pass never read the same.
 - `--record <file>`, which saves a run's raw trials for offline replay later.
