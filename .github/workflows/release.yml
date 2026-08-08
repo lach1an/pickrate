@@ -14,7 +14,10 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    # Full versions only. The moving major tag the Action is consumed through
+    # (`lach1an/pickrate@v0`) is a pointer, not a release: matching `v*` would
+    # fire this job on every retag and fail it at the version check.
+    tags: ['v*.*.*']
   workflow_dispatch:
 
 permissions:
