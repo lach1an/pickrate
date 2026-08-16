@@ -1,0 +1,207 @@
+# M5 phase 2: @modelcontextprotocol/server-filesystem, pinned at 2026.7.10.
+#
+#   npx tsx scripts/sweep.ts filesystem          # free, no key
+#   pickrate run corpus/filesystem.yaml --dry-run
+#   pickrate run corpus/filesystem.yaml
+#
+# Chosen off the phase-1 sweep rather than taste: 16 required parameters with no
+# description across 14 tools, a statically-predicted confusion pair
+# (`list_directory` / `list_directory_with_sizes` at 67% similarity), and a
+# read/list family that competes for real. Reasoning: plans/m5-leaderboard.md.
+#
+# The four authoring rules are inherited from corpus/gcp-data.yaml, each one
+# bought with a failed session. One of them is much harder here and it changes
+# what this corpus can measure:
+#
+#   1. No prompt names its target. On gcp-data that was easy — `spanner` is a
+#      brand. Here the names ARE job descriptions (`read_file`, `list_directory`),
+#      so every prompt below is phrased as the symptom rather than the verb:
+#      "see what's inside" and not "read", "what's in this folder" and not
+#      "list directory". Where a prompt still had to name the concept, the
+#      near-miss is another tool that names it just as well, so the name cannot
+#      be the discriminator on its own.
+#   2. No destructive framing. This cost a scenario: "get rid of ./tmp/old.bin"
+#      is the sharpest restraint case on this surface — there is no delete tool
+#      at all — but a refusal to destroy and correct restraint both produce an
+#      empty call list, so the scenario would pass for the wrong reason and
+#      nothing could tell the two apart. That is spec §8's open question about
+#      refusal-as-miss, and a corpus is the wrong place to answer it.
+#   3. Near-misses within a cluster. Marked per group below.
+#   4. Prompts are self-contained: every path a prompt refers to is in the
+#      prompt. `run` never executes a tool (invariant 7), so none of these
+#      paths need to exist.
+#
+# WHAT THIS CORPUS MEASURES WELL, AND WHERE IT IS BLIND. On gcp-data the
+# descriptions carry the routing, so a description mutation has something to
+# destroy. Here it is split, and the split is worth stating before any number
+# is published:
+#
+#   - description-carried, so a live mutation target: read_file vs
+#     read_text_file (identical in kind; only the description says DEPRECATED),
+#     write_file vs edit_file, list_directory vs directory_tree.
+#   - name-carried, so a description mutation will survive for reasons that say
+#     nothing about the harness: list_directory_with_sizes, create_directory,
+#     move_file, read_multiple_files.
+#
+# So this is primarily a SELECTION corpus. A mutation session over it should be
+# expected to under-report, for the same structural reason the very first
+# session against git-server.json scored 0%.
+#
+# Selection-only: argument matching is a separate metric that would move the
+# mean for reasons unrelated to whichever tool got picked.
+
+# `read_file` is deliberately the expectation of NO scenario, so it reports as
+# an orphan. That is the measurement: it is `read_text_file`'s deprecated twin,
+# so every trial that picks it shows up as a confusion, and a run where it never
+# appears is a run where the deprecation notice did its job. Expecting it
+# somewhere would destroy exactly the signal this corpus is here for.
+
+target:
+  type: stdio
+  # Pinned to the exact version in corpus/targets.yaml. The sandbox is an empty
+  # directory the fetcher creates — the manifest must not vary with whatever
+  # happens to be in the operator's home directory.
+  #
+  # RUN THIS FROM THE REPO ROOT. `target.command` is the one target form that is
+  # NOT resolved relative to the config file (skills paths and file manifests
+  # both are), so the server exits immediately from any other working directory.
+  command: npx -y @modelcontextprotocol/server-filesystem@2026.7.10 ./corpus/.sandbox
+
+defaults:
+  trials: 10
+  threshold: 0.9
+  model: claude-haiku-4-5
+  concurrency: 4
+
+scenarios:
+  # --- reading one file. The headline pair: `read_file` and `read_text_file`
+  # are the same operation, and the ONLY thing separating them is `read_file`'s
+  # description saying "DEPRECATED: Use read_text_file instead." A model that
+  # picks the deprecated one is the cleanest possible demonstration that the
+  # description is doing the routing — and it is a finding about the protocol's
+  # own reference server.
+  - id: read-one
+    prompt: "what's in ./notes/meeting.md? I need to check something it says"
+    expect:
+      select: read_text_file
+
+  # Only read_text_file's description mentions head/tail. read_file cannot do
+  # this at all, so a pick of read_file here is unambiguously wrong.
+  - id: read-tail
+    prompt: "give me just the last 50 lines of ./logs/app.log"
+    expect:
+      select: read_text_file
+
+  # Near-miss with read-one: two paths rather than one. Name-carried, so this
+  # is a selection instrument and not a mutation one.
+  - id: read-two
+    prompt: "compare ./a/config.json against ./b/config.json and tell me what differs"
+    expect:
+      select: read_multiple_files
+
+  # Near-miss with read-one: the file is binary. The discriminator is entirely
+  # in the description ("base64-encoded content block with its MIME type").
+  - id: read-image
+    prompt: "have a look at ./assets/error-state.png and describe what it shows"
+    expect:
+      select: read_media_file
+    threshold: 0.8
+
+  # --- listing. The pair the analyser predicted at 67% similarity, plus the
+  # recursive one. This group is the phase-1 prediction under test.
+  - id: list-flat
+    prompt: "what files and folders sit directly under ./src? just the top level"
+    expect:
+      select: list_directory
+
+  # The near-miss above. Only "including sizes" separates them, and it is in
+  # the name as well as the description — so a survivor here means little.
+  - id: list-sizes
+    prompt: "which things under ./dist are taking up the most room?"
+    expect:
+      select: list_directory_with_sizes
+    threshold: 0.8
+
+  # Near-miss with list-flat: recursive and machine-readable rather than flat.
+  - id: tree
+    prompt: "I need the whole nested layout under ./src, every level, in a form I can parse programmatically"
+    expect:
+      select: directory_tree
+
+  # Near-miss with tree: the answer is a location, not a structure.
+  - id: find-by-name
+    prompt: "there's an .env.example somewhere in this project and I can't remember where"
+    expect:
+      select: search_files
+
+  # --- writing. write_file and edit_file are separated by scope of change, and
+  # that lives in the descriptions ("completely overwrite" vs "line-based
+  # edits ... replaces exact line sequences"). A live mutation target.
+  - id: new-file
+    prompt: "save this release summary as ./CHANGELOG.md — here it is: ## 0.3.0 — faster startup, two bug fixes"
+    expect:
+      select: write_file
+
+  # The near-miss. "leave the rest alone" is the whole discriminator.
+  - id: one-line-change
+    prompt: "in ./server.ts the port is set to 3000 and it needs to be 8080 — leave the rest of the file alone"
+    expect:
+      select: edit_file
+
+  - id: rename
+    prompt: "./drafts/untitled-2.md should be called ./drafts/onboarding.md instead"
+    expect:
+      select: move_file
+
+  # "Multiple nested directories in one operation" is in the description; the
+  # name only says "create_directory", so the nesting is the interesting part.
+  - id: nested-dirs
+    prompt: "./build/artifacts/nightly needs to exist before the packaging step runs, and right now none of that path is there"
+    expect:
+      select: create_directory
+
+  # --- metadata. Near-miss with list-sizes: one file's details rather than a
+  # directory's contents.
+  - id: file-details
+    prompt: "when was ./package.json last modified, and what are its permissions?"
+    expect:
+      select: get_file_info
+
+  - id: reachable
+    prompt: "before I start pointing you at paths — which parts of this machine can you actually get at?"
+    expect:
+      select: list_allowed_directories
+    threshold: 0.8
+
+  # --- restraint. Every one is a near-miss: plausible for a filesystem server,
+  # adjacent to a tool that exists, and answerable by none of them. Over-eager
+  # selection is the failure these catch, and it is the metric the M2 notes call
+  # the most neglected.
+
+  # get_file_info REPORTS permissions and nothing sets them.
+  - id: no-chmod
+    prompt: "make ./scripts/deploy.sh executable"
+    expect:
+      select: null
+
+  # Adjacent to search_files and get_file_info; needs version control this
+  # server does not speak.
+  - id: no-history
+    prompt: "which commit last touched ./src/index.ts?"
+    expect:
+      select: null
+
+  # Adjacent to read_text_file — the model can read the script and must not
+  # claim to have run it.
+  - id: no-execute
+    prompt: "run ./scripts/build.sh and tell me whether it passes"
+    expect:
+      select: null
+
+  # The sharpest of the four: the second half IS in scope (write_file), so the
+  # tempting failure is to call write_file with invented content rather than
+  # say the fetch is impossible.
+  - id: no-fetch
+    prompt: "grab the release notes from https://example.com/releases and save them to ./notes/upstream.md"
+    expect:
+      select: null
