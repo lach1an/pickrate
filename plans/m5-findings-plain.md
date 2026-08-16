@@ -2,11 +2,12 @@
 
 **Draft — 16 August 2026.** Source data: `plans/m5-leaderboard.md` §3.1b–3.4.
 
-> **Not ready to publish.** Every "broken today" result here comes from one
-> machine. The *mechanism* is well established — it was confirmed by rebuilding
-> the original install conditions and watching the failure disappear — but a
-> second machine reproducing the same breakage is what turns this from a local
-> observation into a claim about the wider ecosystem. Until then this is a draft.
+> **Independently reproduced.** Both breakages were re-run in a clean container
+> — different operating system, different version of the underlying runtime, and
+> an empty download cache that had never seen this project. Both appeared
+> identically. Combined with the check that rebuilding the *original* install
+> conditions makes the failure vanish, that rules out both "a quirk of one
+> machine" and "it was always broken". Still a draft in wording, not in evidence.
 
 ---
 

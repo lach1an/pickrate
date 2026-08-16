@@ -178,6 +178,10 @@ Held to the §3.2 rule before being believed: with `uvx --exclude-newer <publish
 
 The corpus is pinned accordingly, and asymmetrically, because the two package managers do not offer the same guarantee: `uvx` targets carry `--exclude-newer` and are genuinely reproducible; `npx` has no such flag, so for those the `surfaceHash` guard (§3.4) is the only defence.
 
+**Both findings reproduced in a clean container, 16 August 2026** — `node:22-slim`, Debian 12, Node 22.23.2 against the host's 24.12.0, and an empty npm/uv cache. `server-filesystem@2025.8.21` resolved `zod@4.4.3` and served **13 of 14 tools with a hollow schema**; `mcp-server-time@2026.7.10` failed with the same `McpError` import, and `--exclude-newer 2026-07-11` fixed it there too.
+
+That closes both escape routes at once. The period-correct install rules out "it was always broken"; the clean container rules out "one machine's cache". The script is `repro.sh` in the session scratchpad and is worth committing somewhere durable if the post cites it.
+
 **Two method errors, both recorded because both nearly published something false.**
 
 - **`--help` is not a health check.** `git` and `sqlite` exit cleanly from `--help` and crash on real invocation, because `--help` short-circuits before the failing path. The first pass concluded they were fine. Only a real `initialize` handshake settles it.
