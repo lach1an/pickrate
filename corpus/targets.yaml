@@ -1,0 +1,248 @@
+# The M5 measurement corpus: what gets swept, and what it is pinned to.
+#
+#   npx tsx scripts/fetch-corpus.ts     # fetch every skills source (once)
+#   npx tsx scripts/sweep.ts            # free, no key, no model call
+#
+# Nothing third-party is vendored. Skills sources are fetched at a pinned SHA
+# and land in the gitignored `corpus/<id>/`. What is checked in is this file,
+# which makes the whole corpus reviewable as a diff.
+#
+# HOW EACH KIND IS ACTUALLY PINNED, because the two are not equivalent:
+#
+#   - skills: a git SHA, which is content-addressed. The SHA *is* the bytes, so
+#     nothing further is needed.
+#   - mcp: a version string, which is NOT the bytes. `npx -y pkg@version` pins
+#     the package and nothing it depends on, and that gap is not hypothetical —
+#     `@modelcontextprotocol/server-filesystem@2025.8.21` served correct schemas
+#     when published and serves parameter-less ones today, because a caret range
+#     let zod go 3 -> 4 underneath a zod-v3 schema converter that fails silently
+#     (plans/m5-leaderboard.md §3.2). So every MCP target also carries a
+#     `surfaceHash`, and the sweep REFUSES a target whose surface no longer
+#     matches rather than reporting findings against a surface the manifest does
+#     not name. Regenerate one with `npx tsx scripts/sweep.ts <id>`, and treat a
+#     changed hash as something to explain, not something to paste over.
+#
+# Reasoning and the rest of the milestone: plans/m5-leaderboard.md.
+
+targets:
+  # --- skills -------------------------------------------------------------
+
+  - id: gcp-data
+    adapter: skills
+    # Built and measured first; plans/mutation-corpus.md is the whole story.
+    # Product names carry no job description and the descriptions carry explicit
+    # negative routing, which is what makes a description mutation load-bearing.
+    git:
+      repo: https://github.com/google/skills.git
+      sha: 8229c1e1ab1b8bd9bd4334e6953ae6bb81bbf2db
+      # `loadSkills` walks one level; upstream nests one deeper, so the leaf
+      # name becomes the directory and the selection stays flat.
+      paths:
+        - skills/cloud/alloydb-basics
+        - skills/cloud/bigquery-ai-ml
+        - skills/cloud/bigquery-basics
+        - skills/cloud/bigquery-bigframes
+        - skills/cloud/bigtable-basics
+        - skills/cloud/cloud-logging-query-generation
+        - skills/cloud/cloud-monitoring-chart-generation
+        - skills/cloud/cloud-monitoring-metric-selection
+        - skills/cloud/cloud-sql-basics
+        - skills/cloud/datalineage-bigquery-asset-impact-analysis
+        - skills/cloud/datalineage-summary
+        - skills/cloud/gcloud
+        - skills/cloud/google-cloud-storage-basics
+        - skills/cloud/google-cloud-waf-cost-optimization
+        - skills/cloud/spanner-basics
+
+  - id: anthropic-skills
+    adapter: skills
+    # Already flat under `skills/`, so the whole set comes in as authored — no
+    # allowlist, which also means no chance of curating the corpus toward a
+    # result. Two clusters do the work: the document formats, and the design
+    # family, plus web-artifacts-builder against webapp-testing.
+    git:
+      repo: https://github.com/anthropics/skills.git
+      # Pinned deliberately on 2026-08-16, when it was also upstream HEAD. It is
+      # recorded here rather than resolved because "HEAD" is not a pin: the same
+      # manifest would name a different corpus a week later, and every number
+      # measured against it would be unattributable. Nothing has been measured
+      # against this SHA yet, so it is still free to move — once something has,
+      # moving it invalidates that baseline the way bumping gcp-data's would.
+      sha: f6656c1256d5a8adfa37db9110046ef20bac644c
+      paths:
+        - skills
+
+  # --- MCP ----------------------------------------------------------------
+  #
+  # Credential-free only. Nothing here stores per-target secrets (`--env` and
+  # `--header` are per-invocation), and a reader who cannot connect cannot
+  # reproduce. `credentialed: true` is not supported yet and is rejected.
+
+  - id: filesystem
+    adapter: mcp
+    credentialed: false
+    # The confusable set is real and unforced: read_file / read_text_file /
+    # read_multiple_files, edit_file / write_file, list_directory /
+    # directory_tree / list_directory_with_sizes.
+    stdio:
+      command: npx
+      # The sandbox is an empty directory the fetcher creates: the manifest must
+      # not vary with whatever happens to be in the operator's home directory.
+      args: ['-y', '@modelcontextprotocol/server-filesystem@2026.7.10', './corpus/.sandbox']
+    surfaceHash: fbf65bc72257d9ac
+
+  - id: memory
+    adapter: mcp
+    credentialed: false
+    # Knowledge-graph CRUD with near-symmetric verbs over entities, relations
+    # and observations — three nouns and four verbs is a selection problem.
+    stdio:
+      command: npx
+      args: ['-y', '@modelcontextprotocol/server-memory@2026.7.4']
+    surfaceHash: 96b24ebe49aedcda
+
+  - id: sequential-thinking
+    adapter: mcp
+    credentialed: false
+    # One tool with a very large description: the token-cost outlier, and the
+    # case where `inspect` has plenty to say and the runner has almost nothing.
+    stdio:
+      command: npx
+      args: ['-y', '@modelcontextprotocol/server-sequential-thinking@2026.7.4']
+    surfaceHash: 8573a8664ad7dc4b
+
+  - id: playwright
+    adapter: mcp
+    credentialed: false
+    # A large manifest from a real product that still needs no credential.
+    stdio:
+      command: npx
+      args: ['-y', '@playwright/mcp@0.0.79', '--headless']
+    surfaceHash: 1a1a124d7fe84361
+
+  - id: everything
+    adapter: mcp
+    credentialed: false
+    # A CONTROL, not a finding source. This is the protocol demo server — its
+    # tools are echo/add/printEnv — so a finding against it says nothing about
+    # anyone's real surface. It is here because a sweep with no known-shape
+    # target cannot tell "the corpus is clean" from "the sweep is broken".
+    control: true
+    stdio:
+      command: npx
+      args: ['-y', '@modelcontextprotocol/server-everything@2026.7.4']
+    surfaceHash: d7e13ad8f21ed4de
+
+  # --- MCP, the official Python reference servers -------------------------
+  #
+  # `uvx` rather than `npx`, which is the point of including them: half the
+  # reference implementations are not on npm, so an npm-only corpus would have
+  # silently defined "best-known public MCP server" as "best-known TypeScript
+  # one".
+  #
+  # ALL FOUR CARRY `--exclude-newer`, AND WITHOUT IT ALL FOUR ARE DEAD TODAY.
+  # `uvx mcp-server-time@2026.7.10` — the current release of an official
+  # reference server — crashes on import, because its floor-ranged `mcp`
+  # dependency now resolves to the Python SDK's 2.0 major and `McpError` moved.
+  # git and sqlite crash the same way one step later, on invocation rather than
+  # import, which is why `--help` "passes" for them: --help short-circuits
+  # before the failing path, so it is not a health check.
+  #
+  # `--exclude-newer <date>` is uv's equivalent of `npm --before`: it resolves
+  # the whole graph as of that date, so these are pinned in the way the npm
+  # targets cannot be (npx has no such flag — for those, the surfaceHash guard
+  # is the only defence). The date is the day each version was published.
+
+  - id: git
+    adapter: mcp
+    credentialed: false
+    stdio:
+      command: uvx
+      # An empty throwaway repo, created by fetch-corpus.ts. Pointing at this
+      # checkout would make the manifest depend on the operator's working tree.
+      args: ['--exclude-newer', '2026-07-11', 'mcp-server-git@2026.7.10', '--repository', './corpus/.sandbox-git']
+    surfaceHash: 0cb3500f08ff4f4b
+
+  - id: fetch
+    adapter: mcp
+    credentialed: false
+    stdio:
+      command: uvx
+      args: ['--exclude-newer', '2026-07-11', 'mcp-server-fetch@2026.7.10']
+    surfaceHash: 6d091a27a3f6b55f
+
+  - id: time
+    adapter: mcp
+    credentialed: false
+    stdio:
+      command: uvx
+      args: ['--exclude-newer', '2026-07-11', 'mcp-server-time@2026.7.10']
+    surfaceHash: 58084eef3887b935
+
+  - id: sqlite
+    adapter: mcp
+    credentialed: false
+    # The one reference server still on a 2025 release — worth having in a
+    # corpus whose whole subject is what drifts underneath a pin.
+    stdio:
+      command: uvx
+      args: ['--exclude-newer', '2025-04-26', 'mcp-server-sqlite@2025.4.25', '--db-path', './corpus/.sandbox/probe.db']
+    surfaceHash: 2486250e50468f2d
+
+  # --- MCP, widely used third-party ---------------------------------------
+  #
+  # Everything here is credential-free and popular enough that its manifest is
+  # in real context windows. None is vendored and none is executed: `inspect`
+  # lists tools and `run` never calls one (invariant 7).
+
+  - id: puppeteer
+    adapter: mcp
+    credentialed: false
+    # The other official browser server, and the oldest thing in the corpus at
+    # 2025.5.12 — a deliberate second data point on age.
+    stdio:
+      command: npx
+      args: ['-y', '@modelcontextprotocol/server-puppeteer@2025.5.12']
+    surfaceHash: 12b219b086e88f3b
+
+  - id: chrome-devtools
+    adapter: mcp
+    credentialed: false
+    stdio:
+      command: npx
+      args: ['-y', 'chrome-devtools-mcp@1.7.0']
+    surfaceHash: c9df65a71a3995fa
+
+  - id: context7
+    adapter: mcp
+    credentialed: false
+    stdio:
+      command: npx
+      args: ['-y', '@upstash/context7-mcp@4.0.2']
+    surfaceHash: 915911fbe117c158
+
+  - id: antv-chart
+    adapter: mcp
+    credentialed: false
+    stdio:
+      command: npx
+      args: ['-y', '@antv/mcp-server-chart@0.9.10']
+    surfaceHash: 87eb41fc1ad16bac
+
+  - id: playwright-executeautomation
+    adapter: mcp
+    credentialed: false
+    # A second, independent Playwright server. Two implementations of the same
+    # job is the sharpest thing a surface linter can be pointed at.
+    stdio:
+      command: npx
+      args: ['-y', '@executeautomation/playwright-mcp-server@1.0.12']
+    surfaceHash: f616ff4cdcca8e14
+
+  - id: desktop-commander
+    adapter: mcp
+    credentialed: false
+    stdio:
+      command: npx
+      args: ['-y', '@wonderwhy-er/desktop-commander@0.2.47']
+    surfaceHash: 7e350ebe996e971e

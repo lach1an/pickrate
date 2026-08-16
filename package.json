@@ -33,6 +33,7 @@
     "dev": "tsx src/cli.ts",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

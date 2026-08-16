@@ -1,0 +1,11 @@
+// The hand-run measurement scripts. Separate from tsconfig.json because they
+// import from `src/` but must never be emitted into `dist/` — they are a
+// measurement session's tooling, not part of the published package.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["scripts/**/*.ts", "src/**/*.ts"]
+}

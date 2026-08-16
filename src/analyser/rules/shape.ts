@@ -16,6 +16,47 @@ export const TOOL_SHARE_WARN = 0.25;
  */
 export const MIN_TOOLS_FOR_SHARE = 8;
 
+/**
+ * A tool that advertises no input schema at all.
+ *
+ * Distinct from a tool that takes no arguments: `{type: "object", properties:
+ * {}}` says "nothing to pass" and is fine. This fires on a schema that says
+ * *nothing* — no `type`, no `properties` — which is what a serialiser produces
+ * when it fails and returns its envelope. `@modelcontextprotocol/server-
+ * filesystem` shipped exactly that for 13 of 14 tools across ten releases from
+ * 0.5.1 to 2025.8.21, so `read_text_file` advertised no `path`.
+ *
+ * It has to be its own rule because `missing-param-description` walks declared
+ * properties: with none declared it finds nothing and stays silent, which is
+ * the one thing this codebase refuses to let mean "clean".
+ */
+export const emptyInputSchema: Rule = {
+  id: 'empty-input-schema',
+  description: 'A tool whose input schema declares nothing at all — the model is told it takes no arguments.',
+  defaultSeverity: 'error',
+  appliesTo: ['mcp'],
+  run(surface) {
+    const findings: Finding[] = [];
+    for (const tool of toolsOf(surface)) {
+      const schema = tool.inputSchema;
+      // Either key present means the schema is making a claim; absent both, it is an empty envelope.
+      if (schema['type'] === 'object' || schema['properties'] !== undefined) continue;
+
+      findings.push({
+        rule: 'empty-input-schema',
+        severity: 'error',
+        item: tool.name,
+        path: 'inputSchema',
+        message:
+          `"${tool.name}" declares no input schema — the model is told it takes no arguments. ` +
+          'If that is true, say so with {"type":"object","properties":{}}.',
+        detail: { inputSchema: schema },
+      });
+    }
+    return findings;
+  },
+};
+
 export const deepSchema: Rule = {
   id: 'deep-schema',
   description: `Input schemas nested deeper than ${MAX_REASONABLE_DEPTH} levels are hard for a model to fill in correctly.`,

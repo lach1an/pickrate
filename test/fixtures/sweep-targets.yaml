@@ -1,0 +1,37 @@
+# The offline check for scripts/sweep.ts: every adapter and every outcome, with
+# no network and no key.
+#
+#   npx tsx scripts/sweep.ts --manifest test/fixtures/sweep-targets.yaml
+#
+# The existing fixture contracts are what make this an assertion rather than a
+# demo — `clean` must report zero findings and `messy` must trip every rule, so
+# a sweep that silently analysed nothing is visible in the output.
+
+targets:
+  - id: clean-skills
+    adapter: skills
+    local: test/fixtures/skills/clean
+
+  - id: messy-skills
+    adapter: skills
+    local: test/fixtures/skills/messy
+
+  - id: git-server
+    adapter: mcp
+    local: test/fixtures/git-server.json
+
+  - id: messy-server
+    adapter: mcp
+    local: test/fixtures/messy-server.json
+
+  # A 2026-07-28 capture: clean tools, deliberately bad cache metadata. It is
+  # the only way the protocol-gated cache rules fire without a live server.
+  - id: cacheable-server
+    adapter: mcp
+    local: test/fixtures/cacheable-server.json
+
+  # Deliberately absent. A target that will not load must be a row, not the end
+  # of the sweep — the other five are still a result.
+  - id: missing-server
+    adapter: mcp
+    local: test/fixtures/does-not-exist.json
