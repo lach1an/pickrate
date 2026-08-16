@@ -8,6 +8,7 @@ import pc from 'picocolors';
 import { analyse } from './analyser/index.js';
 import { DEFAULT_GATES, loadConfig } from './config/index.js';
 import { adapterFor, loadSurface, type LoadOptions, type Presentation } from './adapters/index.js';
+import { ManifestValidationError } from './adapters/mcp/index.js';
 import {
   evaluateAnalysisGates,
   evaluateMutationGates,
@@ -71,6 +72,9 @@ ${pc.bold('inspect options')}
   --fail-on <severity>    exit 1 when findings at or above this level exist
                           (error | warn | info | none, default: none)
   --disable <ids>         comma-separated rule ids to skip
+  --capture <file>        when the server's tools/list fails validation, write
+                          the raw response here. Still exits 2 — the capture is
+                          bytes to analyse separately, not a measurement.
 
 ${pc.bold('run options')}
   --dry-run               print the cost estimate and exit without spending
@@ -131,6 +135,7 @@ export async function main(argv: string[]): Promise<ExitCode> {
       target: { type: 'string' },
       'fail-on': { type: 'string' },
       disable: { type: 'string' },
+      capture: { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
       yes: { type: 'boolean', default: false },
       model: { type: 'string' },
@@ -225,7 +230,10 @@ async function inspect(
     throw new Error(`${configPath} has no target: to inspect.`);
   }
 
-  const surface = await loadSurface(resolved, loadOptions);
+  const surface = await loadSurface(resolved, loadOptions).catch(async (error: unknown) => {
+    await captureRawList(error, values.capture as string | undefined);
+    throw error;
+  });
   const disable = values.disable as string | undefined;
   const analysis = analyse(surface, {
     ...(disable ? { disable: disable.split(',').map((id) => id.trim()) } : {}),
@@ -241,6 +249,29 @@ async function inspect(
   });
 
   return exitCodeFor(gates);
+}
+
+/**
+ * Write out a `tools/list` the SDK refused, when `--capture` asked for it.
+ *
+ * Deliberately does not change the outcome: the run still fails and still exits
+ * 2, because a response we could not validate is a measurement we did not make.
+ * All this does is keep the bytes, so someone can point `inspect` at the file
+ * and analyse them *as data* — which is a separate act, with its own exit code,
+ * performed on purpose.
+ */
+async function captureRawList(error: unknown, path: string | undefined): Promise<void> {
+  if (path === undefined || !(error instanceof ManifestValidationError)) return;
+
+  const payload = {
+    ...(error.protocolVersion !== undefined ? { protocolVersion: error.protocolVersion } : {}),
+    ...(error.raw as Record<string, unknown>),
+  };
+  await writeFile(path, `${JSON.stringify(payload, null, 2)}\n`);
+  process.stderr.write(
+    `${pc.yellow('captured')} unvalidated tools/list written to ${path}\n` +
+      `  This is not a measurement. Analyse the bytes with: pickrate inspect ${path}\n`,
+  );
 }
 
 async function run(configPath: string, loadOptions: LoadOptions, values: Values): Promise<ExitCode> {

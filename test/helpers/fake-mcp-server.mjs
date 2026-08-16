@@ -24,12 +24,24 @@
  *                       Same.
  *   FAKE_MCP_REORDER    when `1`, every listing after the first returns the
  *                       same tools in reverse order.
+ *   FAKE_MCP_DEGRADED   when `1`, every tool's `inputSchema` is the bare
+ *                       `$schema` envelope a v3 schema converter emits when
+ *                       handed a v4 zod object. The SDK rejects the whole
+ *                       response, so this is the only way to exercise the
+ *                       capture path — a fixture cannot, because a fixture has
+ *                       no response to fail validation.
  */
+
+const degraded = process.env.FAKE_MCP_DEGRADED === '1';
+
+// Not `{}`: the real defect keeps the envelope and loses everything else, and a
+// capture that did not look like the wild one would prove nothing.
+const DEGRADED_SCHEMA = { $schema: 'http://json-schema.org/draft-07/schema#' };
 
 const TOOLS = [
   { name: 'alpha', description: 'The first tool.', inputSchema: { type: 'object', properties: {} } },
   { name: 'beta', description: 'The second tool.', inputSchema: { type: 'object', properties: {} } },
-];
+].map((tool) => (degraded ? { ...tool, inputSchema: DEGRADED_SCHEMA } : tool));
 
 const versions = process.env.FAKE_MCP_VERSIONS?.split(/\s+/).filter(Boolean) ?? [];
 // Offering a revision is what makes the client negotiate the modern era, and

@@ -8,7 +8,7 @@ import {
 } from './cache.js';
 import { missingToolDescription, nearDuplicateDescription, thinToolDescription } from './descriptions.js';
 import { enumCandidate, missingParamDescription } from './parameters.js';
-import { deepSchema, tokenBudget } from './shape.js';
+import { deepSchema, emptyInputSchema, tokenBudget } from './shape.js';
 import {
   missingSkillDescription,
   skillDescriptionLength,
@@ -32,6 +32,7 @@ export const rules: Rule[] = [
   missingCacheScope,
   legacyProtocol,
   unparseableSkill,
+  emptyInputSchema,
   missingToolDescription,
   missingSkillDescription,
   skillDescriptionLength,

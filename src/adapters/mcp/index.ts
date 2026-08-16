@@ -55,7 +55,14 @@ export async function loadManifest(
 
   const timeoutMs = options.timeoutMs ?? 30_000;
 
-  const transport = createTransport(t, options);
+  // Tapped so a response the SDK refuses to parse is still recoverable. The
+  // client validates with zod and throws away the bytes; the defect worth
+  // reporting is often *in* those bytes.
+  let rawList: unknown;
+  const transport = tapMessages(createTransport(t, options), (message) => {
+    const result = (message as { result?: unknown } | null)?.result;
+    if (isObject(result) && Array.isArray(result['tools'])) rawList = result;
+  });
 
   // `mode: 'auto'`: probes with server/discover, falls back to the legacy
   // initialize handshake for anything not positively recognised as modern.
@@ -83,7 +90,19 @@ export async function loadManifest(
       return result.tools.map(normaliseTool);
     };
 
-    const tools = await listTools('tools/list');
+    // A rejected response means we could not measure, never that the server is
+    // bad — so the raw bytes are carried out on the error and the caller decides
+    // what to do with them. Nothing here reinterprets a validation failure as a
+    // finding; that only happens once a human has captured it to a file and run
+    // the analyser over it as data.
+    const tools = await listTools('tools/list').catch((error: unknown) => {
+      if (rawList === undefined) throw error;
+      throw new ManifestValidationError(
+        error instanceof Error ? error.message : String(error),
+        rawList,
+        protocolOf(client),
+      );
+    });
 
     // Second listing, for the ordering check only. A re-list that throws leaves
     // the answer absent, never true — "didn't find out" and "was stable" differ.
@@ -114,6 +133,64 @@ export async function loadManifest(
   } finally {
     await client.close().catch(() => {});
   }
+}
+
+/**
+ * A `tools/list` the SDK would not parse, with the bytes still attached.
+ *
+ * This is exit 2 material — *we could not measure* — and must never be turned
+ * into a finding on its own. `raw` exists so a human can capture it and run the
+ * analyser over it as data, which is a different act with a different exit code.
+ */
+export class ManifestValidationError extends Error {
+  override readonly name = 'ManifestValidationError';
+  constructor(
+    message: string,
+    readonly raw: unknown,
+    readonly protocolVersion?: string,
+  ) {
+    super(message);
+  }
+}
+
+/** The negotiated revision, if the handshake got far enough to have one. */
+function protocolOf(client: Client): string | undefined {
+  try {
+    return client.getNegotiatedProtocolVersion();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Forward a transport, copying every inbound message to `onMessage` first.
+ *
+ * A Proxy rather than a hand-written wrapper because `Transport` has optional
+ * members the client sets and reads directly (`sessionId`,
+ * `setProtocolVersion`), and a wrapper that forgets one fails at runtime in a
+ * way types would not catch.
+ */
+function tapMessages(transport: Transport, onMessage: (message: unknown) => void): Transport {
+  let handler: ((message: unknown, extra?: unknown) => void) | undefined;
+
+  return new Proxy(transport, {
+    get(target, prop) {
+      if (prop === 'onmessage') return handler;
+      const value = Reflect.get(target, prop, target) as unknown;
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+    set(target, prop, value: unknown) {
+      if (prop === 'onmessage') {
+        handler = value as typeof handler;
+        Reflect.set(target, prop, (message: unknown, extra?: unknown) => {
+          onMessage(message);
+          handler?.(message, extra);
+        });
+        return true;
+      }
+      return Reflect.set(target, prop, value, target);
+    },
+  });
 }
 
 /**
